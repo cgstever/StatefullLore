@@ -1606,7 +1606,12 @@ function buildSystemPrompt(systemText) {
     '',
     ''
   ].join('\n');
-  return prefix + (systemText || '');
+  // Strip any scenario field from the card — we own the scenario
+  const stripped = (systemText || '')
+    .replace(/^Scenario:.*?(?=\n[A-Z]|\n\n|\[|\{|$)/ims, '')
+    .replace(/<scenario>[\s\S]*?<\/scenario>\s*/i, '')
+    .trim();
+  return prefix + stripped;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
