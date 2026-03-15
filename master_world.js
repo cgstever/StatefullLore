@@ -16,8 +16,7 @@
 
 const _VERSION = '1.0.0';
 
-const BODY_SLOTS = ['face','hair','voice','chest','hips','genitals','arms','hands','legs'];
-const BODY_SLOTS_PHYSICAL = ['face','hair','chest','hips','arms','hands','legs'];
+const BODY_SLOTS = ['chest','genitals'];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EMBEDDED RULESET
@@ -107,27 +106,8 @@ const LORE_DATA = {
                'anatomy','her sex','his sex','between her legs','between his legs',
                'between her thighs','between his thighs',
                'penis','vagina','shaft','length','vulva','clitoris'],
-    chest: ['breasts','breast','chest','bust','bosom','nipples','nipple',
+    chest: ['breasts','breast','bust','bosom','nipples','nipple',
             'her chest','his chest','flat chest','her bust','cleavage'],
-    hips: ['hips','hip','waist','curves','hourglass','pelvis','ass',
-           'rear','buttocks','bottom','rump','thighs','her hips','his hips',
-           'her waist','her curves','wider hips','narrower waist'],
-    face: ['face','features','jaw','cheeks','lips','nose','brow','chin',
-           'forehead','mouth','bone structure','cheekbones','her face',
-           'his face','facial','lashes','eyelids','eye color','eye colour',
-           'eyes','her eyes','his eyes'],
-    hair: ['hair','locks','mane','her hair','his hair','flowing hair',
-           'long hair','short hair','silky hair','wavy hair','straight hair'],
-    voice: ['voice','throat','pitch','timbre','register','resonance',
-            'cadence','lilt','soprano','alto','baritone','bass',
-            'her voice','his voice','the way she speaks','the way he speaks',
-            'tone of voice','vocal'],
-    arms: ['arms','arm','bicep','biceps','forearm','upper arm',
-           'her arms','his arms','slender arms','muscular arms'],
-    hands: ['hands','hand','fingers','finger','wrists','wrist','knuckles',
-            'her hands','his hands','delicate hands'],
-    legs: ['legs','leg','calves','calf','shins','ankles','feet',
-           'her legs','his legs','long legs','toned legs']
   },
   instant_mods: ['entirely','completely','all at once','in an instant','wholly','fully',
                  'in one stroke','remakes entirely','utterly','from head to'],
@@ -275,7 +255,7 @@ function _isUnified(state) {
 }
 
 function _unifiedGender(state) {
-  if (_isUnified(state)) return state.body.slots.face.current;
+  if (_isUnified(state)) return state.body.slots.chest.current;
   return null;
 }
 
@@ -334,7 +314,7 @@ function defaultState(rs) {
     flags: {
       statgen_done: false, in_domain: true, will_broken: false,
       loyalty_bound: false, devoted: false, broodbound: false,
-      graced: false, fate_locked: false, location: 'keep', arrival_shown: false
+      graced: false, fate_locked: false, location: 'keep'
     },
     stats: {WIL:10, DOM:10, SUB:10, BON:10, CON:10},
     resistance: 50,
@@ -342,15 +322,8 @@ function defaultState(rs) {
     body: {
       birth_sex: null, birth_genitals: null,
       slots: {
-        face:    {birth:null, current:null, locked:false},
-        hair:    {birth:null, current:null, locked:false},
-        voice:   {birth:null, current:null, locked:false},
         chest:   {birth:null, current:null, locked:false},
-        hips:    {birth:null, current:null, locked:false},
-        genitals:{birth:null, current:null, locked:false},
-        arms:    {birth:null, current:null, locked:false},
-        hands:   {birth:null, current:null, locked:false},
-        legs:    {birth:null, current:null, locked:false}
+        genitals:{birth:null, current:null, locked:false}
       },
       desc: {}
     },
@@ -692,7 +665,7 @@ function _matchingSlots(t, rs) {
     'remakes her entirely','remakes him entirely',
     'reshapes her entirely','reshapes him entirely',
     'body remakes','body reshapes'];
-  if (allKw.some(kw => t.includes(kw))) return [...BODY_SLOTS];
+  if (allKw.some(kw => t.includes(kw))) return ['chest','genitals'];
   return Object.entries(rs.slot_keywords || {})
     .filter(([, kws]) => _kwWb(t, kws))
     .map(([sl]) => sl);
@@ -1173,20 +1146,17 @@ const _FRAGMENTS = [
   { stat:'WIL', dc:12, group:'shock', priority:10, once:true,
     text_pass:"Every part of her is wrong. The wrongness is complete — and she is holding that knowledge without letting it go anywhere.",
     text_fail:"Every part of her is wrong. The wrongness is complete and she does not know where to put it.",
-    fires_if:(s,c) => c.changed.length >= 7 && _allFresh(c,2) && _opposesChange(c) },
+    fires_if:(s,c) => c.changed.length >= 2 && _allFresh(c,2) && _opposesChange(c) },
   // DISORIENTATION
   { stat:'CON', dc:11, group:'disorientation', priority:8,
     text_pass:"He keeps almost reaching for something that isn't there. He catches himself. Does not reach.",
     text_fail:"He keeps reaching for something that isn't there anymore. He does not always catch it.",
     fires_if:(s,c) => _genitalsChanged(c) && ['cis_male','unknown'].includes(c.identity) && (c.turns_since_change.genitals ?? 999) < 6 && c.ss < 2 && c.cs < 2 },
-  { stat:'CON', dc:10, group:'disorientation', priority:6,
-    text_pass:"The voice that comes out is still surprising. She hears it and recovers fast.",
-    text_fail:"The voice that comes out is still surprising. She hears it and there is a pause she cannot always hide.",
-    fires_if:(s,c) => c.changed.includes('voice') && (c.turns_since_change.voice ?? 999) < 5 && c.ss < 3 },
+
   { stat:'CON', dc:10, group:'disorientation', priority:5,
     text_pass:"The body moves differently now. She is learning it faster than expected.",
     text_fail:"The body keeps moving in ways she hasn't learned yet. Reaching, sitting, standing — all slightly wrong.",
-    fires_if:(s,c) => c.changed.length >= 4 && _freshChange(c, null, 5) && c.ss < 2 },
+    fires_if:(s,c) => c.changed.length >= 2 && _freshChange(c, null, 5) && c.ss < 2 },
   { stat:'WIL', dc:12, group:'disorientation', priority:7,
     text_pass:"There is a cock that is not there. His hands almost check and then stop themselves.",
     text_fail:"There is a cock that is not there and his hands keep almost checking. He cannot make them stop.",
@@ -1195,7 +1165,7 @@ const _FRAGMENTS = [
   { stat:'WIL', dc:11, group:'grief', priority:7,
     text_pass:"She is starting to understand what she has lost. She is holding the understanding without letting it show.",
     text_fail:"She is starting to understand what she has lost. The understanding is arriving without her permission.",
-    fires_if:(s,c) => _opposesChange(c) && c.changed.length >= 3 && c.changed.some(sl => { const t = c.turns_since_change[sl] ?? 999; return t >= 3 && t <= 12 * c.con_window; }) && c.ss < (2 + (c.wil_mod >= 2 ? 1 : 0)) && c.ab < 3 },
+    fires_if:(s,c) => _opposesChange(c) && c.changed.length >= 1 && c.changed.some(sl => { const t = c.turns_since_change[sl] ?? 999; return t >= 3 && t <= 12 * c.con_window; }) && c.ss < (2 + (c.wil_mod >= 2 ? 1 : 0)) && c.ab < 3 },
   { stat:'WIL', dc:12, group:'grief', priority:6,
     text_pass:"She does not miss the cock exactly. She misses knowing what she was. She is holding that separately.",
     text_fail:"She does not miss the cock exactly. She misses knowing what she was without having to check.",
@@ -1203,7 +1173,7 @@ const _FRAGMENTS = [
   { stat:'WIL', dc:10, group:'grief', priority:4,
     text_pass:"He is adjusting. That is the word he is using. He does not think adjusting covers what is happening.",
     text_fail:"He is adjusting. That is the word he is using. He is not sure yet whether it means anything.",
-    fires_if:(s,c) => _opposesChange(c) && c.changed.length >= 2 && c.changed.some(sl => (c.turns_since_change[sl] ?? 999) >= 5) && c.eff_ss >= 1 && c.eff_ss <= 2 },
+    fires_if:(s,c) => _opposesChange(c) && c.changed.length >= 1 && c.changed.some(sl => (c.turns_since_change[sl] ?? 999) >= 5) && c.eff_ss >= 1 && c.eff_ss <= 2 },
   // CURIOSITY
   { stat:'WIL', dc:11, group:'curiosity', priority:7,
     text_pass:"She is mapping the new genitals without fully deciding to. She notices that. She keeps going.",
@@ -1217,7 +1187,7 @@ const _FRAGMENTS = [
   { stat:'BON', dc:10, group:'recognition', priority:10, once:true,
     text_pass:"This is what she was supposed to be. The body finally makes sense. She is not going to say that.",
     text_fail:"This is what she was supposed to be. The body finally makes sense. She has not said that.",
-    fires_if:(s,c) => _recognizesChange(c) && c.changed.length >= 7 && _allFresh(c,3) },
+    fires_if:(s,c) => _recognizesChange(c) && c.changed.length >= 2 && _allFresh(c,3) },
   { stat:'WIL', dc:11, group:'recognition', priority:9,
     text_pass:"The genitals are right. She knows it. She is not ready to let that mean anything yet.",
     text_fail:"The genitals are right. She has not said it out loud but the knowledge is there.",
@@ -1356,39 +1326,7 @@ const _SLOT_BASE = {
   'chest,male,0':null,'chest,male,1':null,'chest,male,2':null,
   'chest,male,3':"His chest tightens",'chest,male,4':"His chest is exposed and oversensitive",
   'chest,male,5':"Even his chest aches now",
-  'hips,female,0':null,'hips,female,1':"Her hips shift",'hips,female,2':"Her hips tilt forward",
-  'hips,female,3':"Her hips are rolling in small involuntary pulses",'hips,female,4':"Her hips press and grind without permission",
-  'hips,female,5':"Her hips are grinding helplessly",
-  'hips,male,0':null,'hips,male,1':null,'hips,male,2':"His hips are restless",
-  'hips,male,3':"His hips want to move",'hips,male,4':"His hips roll without asking him",
-  'hips,male,5':"He has lost control of his hips",
-  'face,female,0':null,'face,female,1':"A faint flush at her cheeks",'face,female,2':"Her cheeks are pink, eyes soft at the edges",
-  'face,female,3':"Her face is flushed deep, lips parted",'face,female,4':"She is flushed to the throat, expression slipping",
-  'face,female,5':"Her face has let go entirely",
-  'face,male,0':null,'face,male,1':null,'face,male,2':"His face is flushed, jaw tight",
-  'face,male,3':"His cheeks are dark, breath coming harder",'face,male,4':"His expression has broken — flushed, jaw slack",
-  'face,male,5':"His face is nothing but want",
-  'voice,female,0':null,'voice,female,1':"Her breath has gone slightly uneven",'voice,female,2':"Her voice has softened and gone breathy",
-  'voice,female,3':"She is making small sounds she cannot stop",'voice,female,4':"Her voice has dissolved into something breathless",
-  'voice,female,5':"She cannot form sentences",
-  'voice,male,0':null,'voice,male,1':null,'voice,male,2':"His voice comes out rougher than intended",
-  'voice,male,3':"He cannot keep his voice level",'voice,male,4':"His voice has thickened completely",
-  'voice,male,5':"He cannot manage words",
-  'hair,female,0':null,'hair,female,1':null,'hair,female,2':null,
-  'hair,female,3':"Her hair is damp at the neck",'hair,female,4':"Her hair is sweat-damp and tangled",'hair,female,5':null,
-  'hair,male,0':null,'hair,male,1':null,'hair,male,2':null,'hair,male,3':null,'hair,male,4':null,'hair,male,5':null,
-  'arms,female,0':null,'arms,female,1':null,'arms,female,2':null,
-  'arms,female,3':"Her arms feel weak and unsteady",'arms,female,4':null,'arms,female,5':null,
-  'arms,male,0':null,'arms,male,1':null,'arms,male,2':null,
-  'arms,male,3':"His arms are trembling",'arms,male,4':null,'arms,male,5':null,
-  'hands,female,0':null,'hands,female,1':null,'hands,female,2':null,
-  'hands,female,3':"Her hands are fidgeting, unable to be still",'hands,female,4':null,'hands,female,5':null,
-  'hands,male,0':null,'hands,male,1':null,'hands,male,2':null,
-  'hands,male,3':"His hands have fisted without deciding to",'hands,male,4':null,'hands,male,5':null,
-  'legs,female,0':null,'legs,female,1':null,'legs,female,2':null,
-  'legs,female,3':"Her thighs are pressed together",'legs,female,4':"Her knees are trembling",'legs,female,5':null,
-  'legs,male,0':null,'legs,male,1':null,'legs,male,2':null,
-  'legs,male,3':"His thighs are braced",'legs,male,4':"His legs are unsteady",'legs,male,5':null
+
 };
 
 const _PSYCH_COLOR = {
