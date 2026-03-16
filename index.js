@@ -23,6 +23,12 @@ const DEFAULTS = {
     server_lores: {},
 };
 
+// -- Auto-update config ------------------------------------------------------
+
+const XCHANGE_LORE_URL = 'https://raw.githubusercontent.com/cgstever/overwrite-st/main/x_change_world.js';
+const XCHANGE_VERSION_URL = 'https://raw.githubusercontent.com/cgstever/overwrite-st/main/version.json';
+const XCHANGE_LORE_KEY = 'x_change_world';
+
 // -- Runtime state -----------------------------------------------------------
 
 let settings = {};
@@ -216,6 +222,33 @@ async function syncLoreFromServer(key, serverPath) {
     });
     console.log(`[OW] Synced into IDB: ${key} v${lore.version || '?'}`);
     return { lore, source };
+}
+
+// -- Auto-update -------------------------------------------------------------
+
+async function checkForLoreUpdate(silent = false) {
+    if (!silent) showLoreInfo('Checking for updates...', '');
+    try {
+        const resp = await fetch(XCHANGE_VERSION_URL + '?t=' + Date.now());
+        if (!resp.ok) throw new Error(`Version check failed: ${resp.status}`);
+        const { version: remoteVersion } = await resp.json();
+        const localVersion = activeLore?.version ?? null;
+
+        if (localVersion === remoteVersion) {
+            if (!silent) showLoreInfo(`Already up to date: v${localVersion}`, 'ok');
+            return false;
+        }
+
+        const fromStr = localVersion ? `v${localVersion}` : 'none';
+        showLoreInfo(`Updating lore: ${fromStr} → v${remoteVersion}…`, '');
+        await loadLoreFromUrl(XCHANGE_LORE_URL);
+        showLoreInfo(`Updated to v${remoteVersion} ✓`, 'ok');
+        return true;
+    } catch (ex) {
+        if (!silent) showLoreInfo(`Update check failed: ${ex.message}`, 'err');
+        console.warn('[OW] Update check failed:', ex);
+        return false;
+    }
 }
 
 // -- Generate interceptor ----------------------------------------------------
@@ -478,6 +511,7 @@ function getSettingsHtml() {
                     <button id="ow-import-btn" class="menu_button" title="Import a .js lore file from your device">Import (.js)</button>
                     <button id="ow-import-url-btn" class="menu_button" title="Load a lore file from a URL">From URL</button>
                     <button id="ow-reload-btn" class="menu_button">Reload</button>
+                    <button id="ow-update-btn" class="menu_button" title="Check GitHub for a newer version of X-Change World lore">Check Update</button>
                     <button id="ow-remove-btn" class="menu_button redWarning">Remove</button>
                 </div>
                 <div id="ow-info" class="ow-status" style="display:none;margin-top:6px;"></div>
@@ -601,6 +635,7 @@ function bindSettingsEvents() {
     });
 
     document.getElementById('ow-remove-btn')?.addEventListener('click', handleRemoveLore);
+    document.getElementById('ow-update-btn')?.addEventListener('click', () => checkForLoreUpdate(false));
     document.getElementById('ow-export-state')?.addEventListener('click', exportState);
     document.getElementById('ow-import-state')?.addEventListener('click', importState);
     document.getElementById('ow-clear-state')?.addEventListener('click', clearState);
@@ -914,6 +949,8 @@ function saveSettings() {
     if (settings.active_lore) {
         try {
             await activateStoredLore(settings.active_lore);
+            // Silently check for a newer version; shows status only if update found or fails
+            checkForLoreUpdate(true).catch(() => {});
         } catch (ex) {
             console.warn('[OW] Could not activate lore:', ex);
         }
