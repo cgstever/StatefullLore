@@ -1036,6 +1036,13 @@ function saveSettings() {
                     if (payload.messages && Array.isArray(payload.messages)) {
                         if (urlStr.includes('/settings/')) throw 'skip';
 
+                        // Scrub pill modifier/effect names from all history messages.
+                        // Model only needs color — not "breeder", "bimbo", "denial", etc.
+                        if (loreEngine && typeof loreEngine.sanitizeHistoryMessages === 'function') {
+                            payload.messages = loreEngine.sanitizeHistoryMessages(payload.messages);
+                            modified = true;
+                        }
+
                         let lastUserIdx = -1;
                         for (let i = payload.messages.length - 1; i >= 0; i--) {
                             if (payload.messages[i].role === 'user') {
