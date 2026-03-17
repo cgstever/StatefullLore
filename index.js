@@ -232,8 +232,14 @@ async function syncLoreFromServer(key, serverPath) {
 
 async function checkForLoreUpdate(silent = false) {
     if (!silent) showLoreInfo('Checking for updates...', '');
+
+    // Use the active lore module's own URLs if it declares them,
+    // otherwise fall back to the hardcoded X-Change World URLs.
+    const versionUrl = (activeLore && activeLore.versionUrl) ? activeLore.versionUrl : XCHANGE_VERSION_URL;
+    const loreUrl    = (activeLore && activeLore.updateUrl)  ? activeLore.updateUrl  : XCHANGE_LORE_URL;
+
     try {
-        const resp = await fetch(XCHANGE_VERSION_URL + '?t=' + Date.now());
+        const resp = await fetch(versionUrl + '?t=' + Date.now());
         if (!resp.ok) throw new Error(`Version check failed: ${resp.status}`);
         const { version: remoteVersion } = await resp.json();
         const localVersion = activeLore?.version ?? null;
@@ -245,7 +251,7 @@ async function checkForLoreUpdate(silent = false) {
 
         const fromStr = localVersion ? `v${localVersion}` : 'none';
         showLoreInfo(`Updating lore: ${fromStr} → v${remoteVersion}…`, '');
-        await loadLoreFromUrl(XCHANGE_LORE_URL);
+        await loadLoreFromUrl(loreUrl);
         showLoreInfo(`Updated to v${remoteVersion} ✓`, 'ok');
         return true;
     } catch (ex) {
