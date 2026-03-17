@@ -191,10 +191,11 @@ async function importAndActivateLore(source, filename) {
 }
 
 async function loadLoreFromUrl(url) {
-    const resp = await fetch(url);
+    const bustUrl = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const resp = await fetch(bustUrl);
     if (!resp.ok) throw new Error(`Fetch ${url} failed: ${resp.status}`);
     const source = await resp.text();
-    const filename = url.split('/').pop() || 'lore.js';
+    const filename = url.split('/').pop().split('?')[0] || 'lore.js';
     return importAndActivateLore(source, filename);
 }
 
