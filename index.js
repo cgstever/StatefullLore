@@ -1038,8 +1038,8 @@ function saveSettings() {
 
                         // Scrub pill modifier/effect names from all history messages.
                         // Model only needs color — not "breeder", "bimbo", "denial", etc.
-                        if (loreEngine && typeof loreEngine.sanitizeHistoryMessages === 'function') {
-                            payload.messages = loreEngine.sanitizeHistoryMessages(payload.messages);
+                        if (activeLore && typeof activeLore.sanitizeHistoryMessages === 'function') {
+                            payload.messages = activeLore.sanitizeHistoryMessages(payload.messages);
                             modified = true;
                         }
 
