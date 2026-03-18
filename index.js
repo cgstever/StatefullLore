@@ -349,6 +349,11 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
     await idbPut(STORE_STATE, sessionKey, state);
     await idbPut(STORE_PERSONA, personaKey, personaState);
 
+    // Update the status HUD (inline panel + floating window)
+    if (activeLore && typeof activeLore.updateHud === 'function') {
+        activeLore.updateHud(state, activeLore._config);
+    }
+
     // Injection is handled entirely by the fetch interceptor below, which fires
     // on the outgoing HTTP POST and covers both payload.messages (chat-format)
     // and payload.prompt (text-completion) backends.  A direct chat-array
@@ -487,6 +492,10 @@ async function onMessageReceived(messageIndex) {
             if (el) {
                 el.innerHTML = ctx.messageFormatting?.(cleaned, msg.name, msg.is_system, msg.is_user, messageIndex) || cleaned;
             }
+        }
+        // Refresh HUD after assistant response processed
+        if (activeLore && typeof activeLore.updateHud === 'function') {
+            activeLore.updateHud(result.state, activeLore._config);
         }
     }
 
