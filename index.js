@@ -1023,6 +1023,14 @@ function saveSettings() {
         container.appendChild(wrapper);
         bindSettingsEvents();
         renderModuleSettings();
+
+        // Seed the HUD with existing state from IDB so it doesn't show "Waiting..."
+        try {
+            const seedState = await idbGet(STORE_STATE, getSessionKey());
+            if (seedState && activeLore && typeof activeLore.updateHud === 'function') {
+                activeLore.updateHud(seedState, activeLore._config);
+            }
+        } catch (_) { /* non-critical */ }
     }
 
     const { eventSource, event_types } = ctx;
