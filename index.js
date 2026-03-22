@@ -21,6 +21,9 @@ const DEFAULTS = {
     active_lore: null,
     debug: false,
     server_lores: {},
+    scenePageMode: false,
+    recentMessageCount: 3,
+    maxSummaryTokens: 400,
 };
 
 // -- Auto-update config ------------------------------------------------------
@@ -367,6 +370,9 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
         systemPrompt: turnResult.systemPrompt || null,
         inject: turnResult.inject || [],
         scrubbed_messages: turnResult.scrubbed_messages || null,
+        // Phase 2 — scene page fields (from engine's processTurn return)
+        storySummary: turnResult.storySummary || null,
+        recentMessageCount: turnResult.recentMessageCount || null,
         ts: Date.now(),
     };
 
@@ -390,6 +396,157 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
         updateDebugPanel(turnResult, state);
     }
 };
+
+// -- Scene Page assembly (Phase 2) -------------------------------------------
+
+/**
+ * Return sensible token budgets based on the model's context window size.
+ * Called by buildScenePage so it can decide how many recent messages to keep
+ * and how long the story summary / header sections are allowed to be.
+ */
+function getTokenBudgets(contextSize) {
+    if (contextSize <= 8192) {
+        return { recentMessages: 2, maxSummaryTokens: 200, maxHeaderTokens: 600 };
+    } else if (contextSize <= 16384) {
+        return { recentMessages: 3, maxSummaryTokens: 400, maxHeaderTokens: 1000 };
+    } else if (contextSize <= 32768) {
+        return { recentMessages: 5, maxSummaryTokens: 600, maxHeaderTokens: 1200 };
+    } else {
+        return { recentMessages: 8, maxSummaryTokens: 800, maxHeaderTokens: 1500 };
+    }
+}
+
+/**
+ * Build a minimal, self-contained "scene page" that replaces the full chat
+ * history.  The model receives everything it needs in five layers:
+ *
+ *   1. System message  – character card + guidelines (kept from ST)
+ *   2. Scene context   – the state header from the lore engine
+ *   3. Story summary   – compressed beat history ("Previously: …")
+ *   4. Recent messages  – last N messages for dialogue continuity
+ *   5. Current turn     – user message with injections (brief, TX, rules)
+ *
+ * @param {Object} pending - window._owPendingInjection data
+ * @param {Array}  messages - payload.messages from the outgoing request
+ * @returns {Array} the assembled scene page message array
+ */
+function buildScenePage(pending, messages) {
+    const scenePage = [];
+
+    // --- Layer 1: System message (character card + guidelines) ---------------
+    // ST already constructs this; keep it as-is.
+    const sysMsg = messages.find(m => m.role === 'system');
+    if (sysMsg) {
+        let sysContent = sysMsg.content || '';
+
+        // Append any system-position inject entries to the system message
+        for (const inj of (pending.inject || [])) {
+            if (!inj || !inj.text || inj.position !== 'system') continue;
+            if (inj.text === pending.header || inj.text === pending.brief) continue;
+            sysContent = inj.replace ? inj.text : sysContent + '\n' + inj.text;
+        }
+
+        // Replace system prompt entirely if the lore engine provided one
+        if (pending.systemPrompt) {
+            sysContent = pending.systemPrompt;
+        }
+
+        scenePage.push({ role: 'system', content: sysContent });
+    }
+
+    // --- Layer 2: Scene context (lore engine header) ------------------------
+    if (pending.header) {
+        scenePage.push({
+            role: 'system',
+            content: '[SCENE CONTEXT]\n' + pending.header + '\n[/SCENE CONTEXT]',
+        });
+    }
+
+    // --- Layer 3: Story summary (beat history) ------------------------------
+    if (pending.storySummary) {
+        scenePage.push({
+            role: 'system',
+            content: pending.storySummary,
+        });
+    }
+
+    // --- Layer 4: Recent messages -------------------------------------------
+    // Use the engine's recentMessageCount when provided (e.g. 1 on TX turns),
+    // otherwise fall back to the user's setting, then the default of 3.
+    const recentCount = pending.recentMessageCount
+        || settings.recentMessageCount
+        || 3;
+
+    // Gather only user/assistant messages (skip system messages).
+    const chatMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
+
+    // We want the last `recentCount` *exchanges* (pairs).  An exchange is
+    // typically one user + one assistant message, so we keep recentCount * 2
+    // messages total.  The very last user message goes into Layer 5 instead.
+    const sliceCount = recentCount * 2;
+    const tail = chatMessages.slice(-sliceCount);
+
+    // Separate out the current (last) user message — it goes in Layer 5.
+    let currentUserMsg = null;
+    if (tail.length > 0 && tail[tail.length - 1].role === 'user') {
+        currentUserMsg = tail.pop();
+    }
+
+    // Everything remaining is the dialogue history window.
+    for (const m of tail) {
+        scenePage.push({ role: m.role, content: m.content });
+    }
+
+    // --- Layer 5: Current user message with injections ----------------------
+    if (currentUserMsg) {
+        let content = currentUserMsg.content || '';
+
+        // Prepend the director brief
+        if (pending.brief) {
+            content = `[DIRECTOR]\n${pending.brief}\n[/DIRECTOR]\n\n` + content;
+        }
+
+        // Process remaining inject entries (non-system, non-header, non-brief)
+        for (const inj of (pending.inject || [])) {
+            if (!inj || !inj.text) continue;
+            if (inj.text === pending.header || inj.text === pending.brief) continue;
+            if (inj.position === 'system') continue;  // already handled in Layer 1
+
+            switch (inj.position) {
+                case 'before_last_user':
+                    content = inj.text + '\n\n' + content;
+                    break;
+                case 'after_last_user':
+                    content = content + '\n\n' + inj.text;
+                    break;
+                case 'depth': {
+                    // In scene page mode, depth injections relative to the end
+                    // of the (now-small) message array.  Insert into scenePage
+                    // at the appropriate offset from the end.
+                    const depth = inj.depth || 0;
+                    const pos = Math.max(0, scenePage.length - depth);
+                    scenePage.splice(pos, 0, {
+                        role: inj.role || 'system',
+                        content: inj.text,
+                    });
+                    break;
+                }
+                // prefill is handled after the user message is pushed
+            }
+        }
+
+        scenePage.push({ role: 'user', content });
+    }
+
+    // --- Prefill (assistant priming) ----------------------------------------
+    for (const inj of (pending.inject || [])) {
+        if (inj && inj.text && inj.position === 'prefill') {
+            scenePage.push({ role: 'assistant', content: inj.text });
+        }
+    }
+
+    return scenePage;
+}
 
 function applyInjection(chat, inj, stFormat) {
     if (!inj || !inj.text) return;
@@ -548,6 +705,34 @@ function getSettingsHtml() {
 
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
+                <b>Scene Page (experimental)</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <label style="margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" id="ow-scene-page-mode">
+                    <span>Enable Scene Page Mode</span>
+                </label>
+                <small style="display:block;margin-bottom:8px;opacity:0.7;">
+                    Replace full chat history with a focused scene page each turn.
+                    The model receives only the character card, current state, story
+                    summary, and last few messages.
+                </small>
+                <div id="ow-scene-page-options" style="margin-left:4px;">
+                    <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                        <span>Recent messages:</span>
+                        <input type="number" id="ow-recent-msg-count" class="text_pole" min="1" max="10" value="3" style="width:60px;">
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                        <span>Max summary tokens:</span>
+                        <input type="number" id="ow-max-summary-tokens" class="text_pole" min="100" max="800" value="400" style="width:70px;">
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
                 <b>State</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
@@ -570,6 +755,32 @@ function bindSettingsEvents() {
         const p = document.getElementById('ow-debug-panel');
         if (p) p.style.display = v ? 'block' : 'none';
     });
+
+    // Scene Page settings
+    bindCheckbox('ow-scene-page-mode', 'scenePageMode', (v) => {
+        const opts = document.getElementById('ow-scene-page-options');
+        if (opts) opts.style.opacity = v ? '1' : '0.5';
+    });
+
+    const recentMsgEl = document.getElementById('ow-recent-msg-count');
+    if (recentMsgEl) {
+        recentMsgEl.value = settings.recentMessageCount || 3;
+        recentMsgEl.addEventListener('change', () => {
+            settings.recentMessageCount = Math.max(1, Math.min(10, parseInt(recentMsgEl.value, 10) || 3));
+            recentMsgEl.value = settings.recentMessageCount;
+            saveSettings();
+        });
+    }
+
+    const maxTokensEl = document.getElementById('ow-max-summary-tokens');
+    if (maxTokensEl) {
+        maxTokensEl.value = settings.maxSummaryTokens || 400;
+        maxTokensEl.addEventListener('change', () => {
+            settings.maxSummaryTokens = Math.max(100, Math.min(800, parseInt(maxTokensEl.value, 10) || 400));
+            maxTokensEl.value = settings.maxSummaryTokens;
+            saveSettings();
+        });
+    }
 
     const selectEl = document.getElementById('ow-active-select');
     if (selectEl) {
@@ -1071,6 +1282,56 @@ function saveSettings() {
                     if (payload.messages && Array.isArray(payload.messages)) {
                         if (urlStr.includes('/settings/')) throw 'skip';
 
+                        // ── Scene-page branch (Phase 2) ─────────────────────
+                        // When scene page mode is enabled, replace the full
+                        // message array with a compact, self-contained scene page.
+                        // Falls through to the legacy path when the toggle is off.
+                        if (settings.scenePageMode) {
+                            payload.messages = buildScenePage(pending, payload.messages);
+
+                            // Apply pill-effect name scrubbing to the recent
+                            // messages inside the scene page.
+                            const scrubbedMsgs = pending.scrubbed_messages
+                                || (lastTurnResult && lastTurnResult.scrubbed_messages);
+                            if (scrubbedMsgs && Array.isArray(scrubbedMsgs)) {
+                                // Scrubbed array maps to the tail of the original
+                                // messages.  In scene page mode we only kept a few
+                                // recent messages; scan and scrub any matching
+                                // user/assistant content.
+                                for (const pm of payload.messages) {
+                                    if (pm.role !== 'user' && pm.role !== 'assistant') continue;
+                                    for (const sm of scrubbedMsgs) {
+                                        // Match by original content prefix (first 80 chars)
+                                        // to find the corresponding scrubbed version.
+                                        if (sm.content !== undefined && pm.content &&
+                                            pm.content.length > 0 && sm._origPrefix &&
+                                            pm.content.startsWith(sm._origPrefix)) {
+                                            pm.content = sm.content;
+                                        }
+                                    }
+                                }
+                            }
+                            // Also try the lore's direct scrub helper on all
+                            // user/assistant messages in the scene page.
+                            if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
+                                for (const pm of payload.messages) {
+                                    if (pm.role === 'user' || pm.role === 'assistant') {
+                                        pm.content = activeLore._scrubPillEffectText(
+                                            pm.content || '', activeLore._config);
+                                    }
+                                }
+                            }
+
+                            window._owPendingInjection = null;
+                            opts.body = JSON.stringify(payload);
+                            if (settings.debug) {
+                                console.log('[OW] Scene page assembled (' + payload.messages.length + ' messages):',
+                                    payload.messages.map(m => m.role + '(' + (m.content || '').length + ')').join(', '));
+                            }
+                            // Skip the legacy injection path
+                        } else {
+                        // ── Legacy full-history injection path ───────────────
+
                         let lastUserIdx = -1;
                         for (let i = payload.messages.length - 1; i >= 0; i--) {
                             if (payload.messages[i].role === 'user') {
@@ -1158,6 +1419,7 @@ function saveSettings() {
                                 }
                             }
                         }
+                        } // end legacy else branch
                     } else if (payload.prompt && typeof payload.prompt === 'string') {
                         if (urlStr.includes('/settings/')) throw 'skip';
 
