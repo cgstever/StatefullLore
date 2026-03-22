@@ -1340,6 +1340,7 @@ function saveSettings() {
                                 }
                             }
 
+                            window._owLastScenePage = {mode: 'chat', msgCount: payload.messages.length, roles: payload.messages.map(m=>m.role)};
                             window._owPendingInjection = null;
                             opts.body = JSON.stringify(payload);
                             if (settings.debug) {
@@ -1497,6 +1498,8 @@ function saveSettings() {
                             }
 
                             payload.prompt = prompt;
+                            window._owLastPrompt = prompt;
+                            window._owLastScenePage = {hasPriority: isPriorityTurn, headerLen: (pending.header||'').length, briefLen: (pending.brief||'').length, summaryLen: (pending.storySummary||'').length};
                             window._owPendingInjection = null;
                             opts.body = JSON.stringify(payload);
                             if (settings.debug) {
