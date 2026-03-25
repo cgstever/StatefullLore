@@ -558,10 +558,15 @@ function buildScenePage(pending, messages) {
                     content = content + '\n\n' + inj.text;
                     break;
                 case 'depth': {
-                    // In scene page mode, depth-0 injections (hard rules)
-                    // get merged into the first system message to prevent
-                    // the model from echoing them as visible text.
                     const depth = inj.depth || 0;
+                    // On priority/TX turns, skip depth-0 injections (hard
+                    // rules about orgasm gates etc.) — they're not relevant
+                    // during transformation and can trigger model safety.
+                    if (depth === 0 && isPriorityTurn) {
+                        break;
+                    }
+                    // Normal turns: merge depth-0 into system message to
+                    // prevent the model from echoing tags as visible text.
                     if (depth === 0 && scenePage.length > 0 && scenePage[0].role === 'system') {
                         scenePage[0].content += '\n\n' + inj.text;
                     } else {
