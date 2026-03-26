@@ -379,8 +379,6 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
     // ── Use ST's official extension prompt API ──────────────────────
     // This injects content into ST's prompt assembly pipeline, AFTER
     // all post-processing. Content set here WILL reach the model.
-    const ctx = SillyTavern.getContext();
-
     // Inject header as a system prompt at depth 1 (just before last user message)
     if (turnResult.header) {
         // Apply pill scrubbing to header
