@@ -386,9 +386,9 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
         if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
             cleanHeader = activeLore._scrubPillEffectText(cleanHeader, activeLore._config);
         }
-        ctx.setExtensionPrompt('OW_HEADER', cleanHeader, 1, 1, false, 0);
+        ctx.setExtensionPrompt('OW_HEADER', cleanHeader, 0, 1, false, 0);
     } else {
-        ctx.setExtensionPrompt('OW_HEADER', '', 1, 1, false, 0);
+        ctx.setExtensionPrompt('OW_HEADER', '', 0, 1, false, 0);
     }
 
     // Inject brief at depth 0 (at the end, closest to model generation)
@@ -397,16 +397,16 @@ globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type
         if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
             cleanBrief = activeLore._scrubPillEffectText(cleanBrief, activeLore._config);
         }
-        ctx.setExtensionPrompt('OW_BRIEF', cleanBrief, 1, 0, false, 0);
+        ctx.setExtensionPrompt('OW_BRIEF', cleanBrief, 0, 0, false, 0);
     } else {
-        ctx.setExtensionPrompt('OW_BRIEF', '', 1, 0, false, 0);
+        ctx.setExtensionPrompt('OW_BRIEF', '', 0, 0, false, 0);
     }
 
     // Inject story summary if available
     if (turnResult.storySummary) {
-        ctx.setExtensionPrompt('OW_STORY', turnResult.storySummary, 1, 2, false, 0);
+        ctx.setExtensionPrompt('OW_STORY', turnResult.storySummary, 0, 2, false, 0);
     } else {
-        ctx.setExtensionPrompt('OW_STORY', '', 1, 2, false, 0);
+        ctx.setExtensionPrompt('OW_STORY', '', 0, 2, false, 0);
     }
 
     // ── Scrub pill text from chat messages ────────────────────────
