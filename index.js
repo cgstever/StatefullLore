@@ -1204,22 +1204,25 @@ function saveSettings() {
                         let state = (await idbGet(STORE_STATE, sessionKey)) || {};
                         let personaState = (await idbGet(STORE_PERSONA, personaKey)) || {};
 
-                        // Pull system text from the payload first, then fall back to
-                        // the character card so processTurn always has it available.
+                        // Build systemText from the card description directly — this is
+                        // the authoritative source for Stats:, Name:, Sex:, etc.
+                        // ST's system_prompt field is separate and typically does not
+                        // contain the card description, so we always pull from ctx.
+                        // The payload system message (system_prompt) is appended after
+                        // so processTurn still has access to any extra directives.
                         let systemText = '';
+                        const _cardData = ctx.characters?.[ctx.characterId];
+                        if (_cardData) {
+                            const parts = [];
+                            if (_cardData.description) parts.push(_cardData.description);
+                            if (_cardData.personality) parts.push(_cardData.personality);
+                            if (_cardData.scenario)    parts.push('Scenario: ' + _cardData.scenario);
+                            systemText = parts.join('\n');
+                        }
+                        // Append the payload system message if it adds anything not already there
                         const sysMsg = payload.messages.find(m => m.role === 'system');
-                        if (sysMsg) systemText = sysMsg.content || '';
-                        if (!systemText) {
-                            const charData = ctx.characters?.[ctx.characterId];
-                            if (charData) {
-                                const parts = [];
-                                if (charData.name)        parts.push('Name: ' + charData.name);
-                                if (charData.personality) parts.push('Personality: ' + charData.personality);
-                                if (charData.description) parts.push(charData.description);
-                                if (charData.scenario)    parts.push('Scenario: ' + charData.scenario);
-                                if (charData.mes_example) parts.push(charData.mes_example);
-                                systemText = parts.join('\n');
-                            }
+                        if (sysMsg && sysMsg.content && !systemText.includes(sysMsg.content.substring(0, 80))) {
+                            systemText = systemText ? systemText + '\n' + sysMsg.content : sysMsg.content;
                         }
 
                         const messages = payload.messages.map(m => ({
