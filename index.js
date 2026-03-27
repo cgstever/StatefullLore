@@ -361,7 +361,8 @@ function buildScenePage(pending, messages) {
     // so the model treats it as an active instruction rather than background.
 
     // --- Layer 3: Story summary (beat history) ------------------------------
-    if (pending.storySummary) {
+    // Suppressed on TX turns — the model only needs the transformation header.
+    if (pending.storySummary && !isPriorityTurn) {
         scenePage.push({
             role: 'system',
             content: pending.storySummary,
@@ -399,8 +400,8 @@ function buildScenePage(pending, messages) {
     if (currentUserMsg) {
         let content = currentUserMsg.content || '';
 
-        // Prepend the director brief
-        if (pending.brief) {
+        // Prepend the director brief — suppressed on TX turns
+        if (pending.brief && !isPriorityTurn) {
             content = `[DIRECTOR]\n${pending.brief}\n[/DIRECTOR]\n\n` + content;
         }
 
