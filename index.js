@@ -321,6 +321,18 @@ function messagesToChatML(messages, isPriorityTurn) {
 function buildScenePage(pending, messages) {
     const scenePage = [];
 
+    // --- Layer 0: Persona reference block (normal turns only) ---------------
+    // Placed first so the model has clear reference-only context about the
+    // player before seeing anything else. Excluded on TX turns entirely.
+    const isTxTurn = pending.recentMessageCount === 1;
+    if (pending.personaBlock && !isTxTurn) {
+        scenePage.push({
+            role: 'system',
+            content: '[PLAYER REFERENCE — for context only. Do not write from this perspective.]
+' + pending.personaBlock,
+        });
+    }
+
     // --- Layer 1: System message (character card + guidelines) ---------------
     // Filter to actor-relevant content only — engine-internal fields (Stats:,
     // Sex Baseline:, Anatomy Snapshot:, raw build data) are stripped so the
@@ -1294,6 +1306,7 @@ function saveSettings() {
                             storySummary:       turnResult.storySummary || null,
                             recentMessageCount: turnResult.recentMessageCount || null,
                             priorityInjection:  turnResult.priorityInjection || false,
+                            personaBlock:       turnResult.personaBlock || null,
                         };
 
                         payload.messages = buildScenePage(pending, payload.messages);
