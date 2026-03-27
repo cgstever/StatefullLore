@@ -260,199 +260,10 @@ async function checkForLoreUpdate(silent = false) {
 
 // -- Generate interceptor ----------------------------------------------------
 
-globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type) {
-    if (!settings.enabled) return;
-    if (type === 'quiet' || type === 'impersonate') return;
-
-    const ctx = SillyTavern.getContext();
-    const sessionKey = getSessionKey();
-    const personaKey = getPersonaKey();
-
-    let state = (await idbGet(STORE_STATE, sessionKey)) || {};
-    let personaState = (await idbGet(STORE_PERSONA, personaKey)) || {};
-
-    let systemText = '';
-    const systemIdx = chat.findIndex(m => m.role === 'system');
-    if (systemIdx >= 0) {
-        systemText = chat[systemIdx].content || '';
-    }
-
-    if (!systemText) {
-        const charData = ctx.characters?.[ctx.characterId];
-        if (charData) {
-            const parts = [];
-            if (charData.name)        parts.push('Name: ' + charData.name);
-            if (charData.personality) parts.push('Personality: ' + charData.personality);
-            if (charData.description) parts.push(charData.description);
-            if (charData.scenario)    parts.push('Scenario: ' + charData.scenario);
-            if (charData.mes_example) parts.push(charData.mes_example);
-            systemText = parts.join('\n');
-        }
-    }
-
-    if (!systemText) {
-        const fallbackIdx = chat.findIndex(m => m.role !== 'user' && m.role !== 'assistant');
-        if (fallbackIdx >= 0) systemText = chat[fallbackIdx].content || '';
-    }
-
-    if (settings.debug) {
-        const src = systemIdx >= 0 && systemText ? 'chat[system]'
-            : ctx.characters?.[ctx.characterId]?.name ? 'ctx.characters'
-            : 'fallback';
-        console.log('[OW] systemText:', systemText.length + 'ch from ' + src,
-            '| chat roles:', chat.map((m, i) => m.role + '(' + (m.content || '').length + ')').join(', '));
-        if (chat.length > 0) {
-            console.log('[OW] chat[0] keys:', Object.keys(chat[0]).join(', '));
-            console.log('[OW] chat[0] raw:', JSON.stringify(chat[0]).substring(0, 500));
-        }
-    }
-
-    let messages = chat.map(m => ({ role: m.role, content: m.content || '' }));
-
-    const hasContent = messages.some(m => m.content && m.content.length > 0 && m.role);
-    if (!hasContent && ctx.chat && ctx.chat.length > 0) {
-        messages = [];
-        for (const msg of ctx.chat) {
-            if (!msg || msg.is_system) continue;
-            const role = msg.is_user ? 'user' : 'assistant';
-            const content = msg.mes || '';
-            if (content) messages.push({ role, content });
-        }
-    }
-
-    if (!activeLore) return;
-
-    const charData = ctx.characters?.[ctx.characterId];
-    const charNameHint = charData?.name || null;
-
-    let turnResult;
-    try {
-        turnResult = await activeLore.processTurn({
-            systemText,
-            messages,
-            state,
-            personaState,
-            config: activeLore._config || {},
-            charNameHint,
-            personaName: ctx.name1 || null,
-        });
-        if (!turnResult) {
-            if (settings.debug) console.log('[OW] processTurn returned null');
-            return;
-        }
-        state = turnResult.state || state;
-        personaState = turnResult.persona_state || personaState;
-    } catch (ex) {
-        console.error('[OW] processTurn error:', ex);
-        return;
-    }
-
-    lastTurnResult = { ...turnResult, _mode: 'js' };
-
-    await idbPut(STORE_STATE, sessionKey, state);
-    await idbPut(STORE_PERSONA, personaKey, personaState);
-
-    // Update the status HUD (inline panel + floating window)
-    if (activeLore && typeof activeLore.updateHud === 'function') {
-        activeLore.updateHud(state, activeLore._config);
-    }
-
-    // Injection is handled entirely by the fetch interceptor below, which fires
-    // on the outgoing HTTP POST and covers both payload.messages (chat-format)
-    // and payload.prompt (text-completion) backends.  A direct chat-array
-    // mutation here would cause the header/brief to appear twice because ST
-    // serialises the already-mutated array into the same request body that the
-    // fetch interceptor then modifies again.
-
-    window._owPendingInjection = {
-        header: turnResult.header || null,
-        brief: turnResult.brief || null,
-        systemPrompt: turnResult.systemPrompt || null,
-        inject: turnResult.inject || [],
-        scrubbed_messages: turnResult.scrubbed_messages || null,
-        storySummary: turnResult.storySummary || null,
-        recentMessageCount: turnResult.recentMessageCount || null,
-        priorityInjection: turnResult.priorityInjection || false,
-        ts: Date.now(),
-    };
-
-    // ── Use ST's official extension prompt API ──────────────────────
-    // This injects content into ST's prompt assembly pipeline, AFTER
-    // all post-processing. Content set here WILL reach the model.
-    // Inject header as a system prompt at depth 1 (just before last user message)
-    if (turnResult.header) {
-        // Apply pill scrubbing to header
-        let cleanHeader = turnResult.header;
-        if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-            cleanHeader = activeLore._scrubPillEffectText(cleanHeader, activeLore._config);
-        }
-        ctx.setExtensionPrompt('OW_HEADER', cleanHeader, 0, 1, false, 0);
-    } else {
-        ctx.setExtensionPrompt('OW_HEADER', '', 0, 1, false, 0);
-    }
-
-    // Inject brief at depth 0 (at the end, closest to model generation)
-    if (turnResult.brief) {
-        let cleanBrief = turnResult.brief;
-        if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-            cleanBrief = activeLore._scrubPillEffectText(cleanBrief, activeLore._config);
-        }
-        ctx.setExtensionPrompt('OW_BRIEF', cleanBrief, 0, 0, false, 0);
-    } else {
-        ctx.setExtensionPrompt('OW_BRIEF', '', 0, 0, false, 0);
-    }
-
-    // Inject story summary if available
-    if (turnResult.storySummary) {
-        ctx.setExtensionPrompt('OW_STORY', turnResult.storySummary, 0, 2, false, 0);
-    } else {
-        ctx.setExtensionPrompt('OW_STORY', '', 0, 2, false, 0);
-    }
-
-    // ── Scrub pill text from chat messages ────────────────────────
-    // The chat array is passed by reference — modifying message
-    // content here will affect what ST sends to the model.
-    if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-        for (let i = 0; i < chat.length; i++) {
-            if (chat[i] && chat[i].mes && typeof chat[i].mes === 'string') {
-                chat[i].mes = activeLore._scrubPillEffectText(chat[i].mes, activeLore._config);
-            }
-            if (chat[i] && chat[i].extra && chat[i].extra.display_text && typeof chat[i].extra.display_text === 'string') {
-                // Don't modify display_text — that's what shows in the UI
-            }
-        }
-    }
-
-    // Debug capture
-    window._owScenePageDebug = {
-        headerLen: turnResult.header?.length || 0,
-        briefLen: turnResult.brief?.length || 0,
-        storyLen: turnResult.storySummary?.length || 0,
-        priorityInjection: turnResult.priorityInjection,
-        headerPreview: (turnResult.header || '').substring(0, 200),
-        chatScrubbed: true,
-    };
-
-    if (settings.debug) {
-        console.log('[OW] Turn processed', {
-            mode: lastTurnResult._mode,
-            turn: state.turn,
-            headerLength: turnResult.header?.length || 0,
-            brief: turnResult.brief?.substring(0, 150),
-            events: turnResult.events,
-            injectCount: turnResult.inject?.length || 0,
-            pill: state.active_pill,
-            arousal: state.arousal,
-        });
-        if (turnResult.header) {
-            console.log('[OW] INJECTED HEADER:\n' + turnResult.header);
-        }
-        if (turnResult.brief) {
-            console.log('[OW] DIRECTOR BRIEF:\n' + turnResult.brief);
-        }
-        updateDebugPanel(turnResult, state);
-    }
-};
+// overwriteInterceptor is kept as a no-op so ST doesn't crash if it calls this
+// global by convention.  All work — processTurn, scene page assembly, injection —
+// is now handled exclusively by the fetch interceptor below.
+globalThis.overwriteInterceptor = async function (chat, contextSize, abort, type) {};
 
 // -- Scene Page assembly (Phase 2) -------------------------------------------
 
@@ -1374,399 +1185,140 @@ function saveSettings() {
         window.fetch = async function (...args) {
             const [url, opts] = args;
             const urlStr = typeof url === 'string' ? url : url?.url || '';
-            const pending = window._owPendingInjection;
 
-            // Top-level fetch debug
-            window._owFetchDebug = {
-                hasPending: !!pending,
-                pendingTs: pending?.ts,
-                pendingAge: pending ? Date.now() - pending.ts : -1,
-                method: opts?.method,
-                bodyType: typeof opts?.body,
-                bodyLen: opts?.body?.length || 0,
-                hasMessages: false,
-                hasPrompt: false,
-                scenePageMode: settings.scenePageMode,
-            };
-            try {
-                if (opts?.body && typeof opts.body === 'string') {
-                    const _testBody = JSON.parse(opts.body);
-                    window._owFetchDebug.hasMessages = !!(_testBody.messages && Array.isArray(_testBody.messages));
-                    window._owFetchDebug.hasPrompt = !!(typeof _testBody.prompt === 'string');
-                    window._owFetchDebug.msgCount = _testBody.messages?.length || 0;
-                }
-            } catch(e) { window._owFetchDebug.parseError = e.message; }
-
-            // ── Always scrub pill text from user messages ──────────
-            // Runs on every request, independent of scene page state.
-            if (opts?.body && typeof opts.body === 'string') {
+            // Only intercept generation POSTs when lore is active
+            if (settings.enabled && activeLore &&
+                opts?.method === 'POST' &&
+                opts?.body && typeof opts.body === 'string' &&
+                opts.body.length > 500 &&
+                !urlStr.includes('/settings/')) {
                 try {
-                    const _scrubPayload = JSON.parse(opts.body);
-                    if (_scrubPayload.messages && Array.isArray(_scrubPayload.messages) && activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-                        let _didScrub = false;
-                        for (const _sm of _scrubPayload.messages) {
-                            if (_sm.role === 'user' && _sm.content) {
-                                const _cleaned = activeLore._scrubPillEffectText(_sm.content, activeLore._config);
-                                if (_cleaned !== _sm.content) {
-                                    _sm.content = _cleaned;
-                                    _didScrub = true;
-                                }
-                            }
-                        }
-                        if (_didScrub) {
-                            opts.body = JSON.stringify(_scrubPayload);
-                        }
-                    }
-                } catch(_e) {}
-            }
-
-            const effectivePending = pending || window._owScenePagePending;
-            if (effectivePending && effectivePending.ts && (Date.now() - effectivePending.ts < 30000) &&
-                opts?.method === 'POST' && opts?.body && typeof opts.body === 'string' && opts.body.length > 500) {
-                try {
-                    const pending = effectivePending;
                     const payload = JSON.parse(opts.body);
-                    let modified = false;
 
                     if (payload.messages && Array.isArray(payload.messages)) {
-                        if (urlStr.includes('/settings/')) throw 'skip';
+                        // ── Chat completion: full pipeline ───────────────────
+                        const ctx = SillyTavern.getContext();
+                        const sessionKey = getSessionKey();
+                        const personaKey = getPersonaKey();
 
-                        // ── Scene-page branch (Phase 2) ─────────────────────
-                        // When scene page mode is enabled, replace the full
-                        // message array with a compact, self-contained scene page.
-                        // Falls through to the legacy path when the toggle is off.
-                        if (settings.scenePageMode) {
-                            payload.messages = buildScenePage(pending, payload.messages);
-                            // Debug: capture final messages for diagnosis
-                            window._owScenePageDebug = payload.messages.map(m => ({role: m.role, len: (m.content||'').length, hasStyleRef: (m.content||'').includes('STYLE REFERENCE'), hasGuide: (m.content||'').includes('lean frame') || (m.content||'').includes('height dropping'), hasGolden: (m.content||'').includes('Write ONLY as'), preview: (m.content||'').substring(0, 200)}));
+                        let state = (await idbGet(STORE_STATE, sessionKey)) || {};
+                        let personaState = (await idbGet(STORE_PERSONA, personaKey)) || {};
 
-                            // Apply pill-effect name scrubbing to the recent
-                            // messages inside the scene page.
-                            const scrubbedMsgs = pending.scrubbed_messages
-                                || (lastTurnResult && lastTurnResult.scrubbed_messages);
-                            if (scrubbedMsgs && Array.isArray(scrubbedMsgs)) {
-                                // Scrubbed array maps to the tail of the original
-                                // messages.  In scene page mode we only kept a few
-                                // recent messages; scan and scrub any matching
-                                // user/assistant content.
-                                for (const pm of payload.messages) {
-                                    if (pm.role !== 'user' && pm.role !== 'assistant') continue;
-                                    for (const sm of scrubbedMsgs) {
-                                        // Match by original content prefix (first 80 chars)
-                                        // to find the corresponding scrubbed version.
-                                        if (sm.content !== undefined && pm.content &&
-                                            pm.content.length > 0 && sm._origPrefix &&
-                                            pm.content.startsWith(sm._origPrefix)) {
-                                            pm.content = sm.content;
-                                        }
-                                    }
-                                }
-                            }
-                            // Also try the lore's direct scrub helper on all
-                            // user/assistant messages in the scene page.
-                            if (activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-                                for (const pm of payload.messages) {
-                                    if (pm.role === 'user' || pm.role === 'assistant') {
-                                        pm.content = activeLore._scrubPillEffectText(
-                                            pm.content || '', activeLore._config);
-                                    }
-                                }
-                            }
-
-
-                            // On priority/TX turns in chat completion mode,
-                            // we have full control of the message array.
-                            // Replace the post-history instruction (if ST added one)
-                            // with a TX-appropriate instruction, and ensure the
-                            // TX write directive is the last system message.
-                            if (pending.priorityInjection || pending.recentMessageCount === 1) {
-                                // Find and remove any trailing user message that looks
-                                // like ST's post-history (usually the last message with
-                                // generic instructions like "Keep output focused")
-                                const lastMsg = payload.messages[payload.messages.length - 1];
-                                if (lastMsg && lastMsg.role === 'user' &&
-                                    lastMsg.content && lastMsg.content.includes('Keep output focused')) {
-                                    payload.messages.pop();
-                                }
-                                // Append the full TX header + write directive as final system message.
-                                // This is the LAST thing the model sees before generating.
-                                const txContent = (pending.header || '') +
-                                    '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.';
-                                payload.messages.push({
-                                    role: 'system',
-                                    content: txContent
-                                });
-                            }
-
-                            window._owLastScenePage = {mode: 'chat', msgCount: payload.messages.length, roles: payload.messages.map(m=>m.role)};
-                            window._owPendingInjection = null;
-                            opts.body = JSON.stringify(payload);
-                            if (settings.debug) {
-                                console.log('[OW] Scene page assembled (' + payload.messages.length + ' messages):',
-                                    payload.messages.map(m => m.role + '(' + (m.content || '').length + ')').join(', '));
-                            }
-                            // Skip the legacy injection path
-                        } else {
-                        // ── Legacy full-history injection path ───────────────
-
-                        let lastUserIdx = -1;
-                        for (let i = payload.messages.length - 1; i >= 0; i--) {
-                            if (payload.messages[i].role === 'user') {
-                                lastUserIdx = i;
-                                break;
+                        // Pull system text from the payload first, then fall back to
+                        // the character card so processTurn always has it available.
+                        let systemText = '';
+                        const sysMsg = payload.messages.find(m => m.role === 'system');
+                        if (sysMsg) systemText = sysMsg.content || '';
+                        if (!systemText) {
+                            const charData = ctx.characters?.[ctx.characterId];
+                            if (charData) {
+                                const parts = [];
+                                if (charData.name)        parts.push('Name: ' + charData.name);
+                                if (charData.personality) parts.push('Personality: ' + charData.personality);
+                                if (charData.description) parts.push(charData.description);
+                                if (charData.scenario)    parts.push('Scenario: ' + charData.scenario);
+                                if (charData.mes_example) parts.push(charData.mes_example);
+                                systemText = parts.join('\n');
                             }
                         }
 
-                        if (lastUserIdx >= 0) {
-                            let userContent = payload.messages[lastUserIdx].content || '';
-                            if (pending.header) {
-                                userContent = pending.header + '\n\n' + userContent;
-                            }
-                            if (pending.brief) {
-                                userContent = `[DIRECTOR]\n${pending.brief}\n[/DIRECTOR]\n\n` + userContent;
-                            }
-                            payload.messages[lastUserIdx].content = userContent;
-                            modified = true;
+                        const messages = payload.messages.map(m => ({
+                            role: m.role,
+                            content: m.content || '',
+                        }));
+
+                        const charData = ctx.characters?.[ctx.characterId];
+
+                        // ── Run lore engine ──────────────────────────────────
+                        let turnResult;
+                        try {
+                            turnResult = await activeLore.processTurn({
+                                systemText,
+                                messages,
+                                state,
+                                personaState,
+                                config: activeLore._config || {},
+                                charNameHint: charData?.name || null,
+                                personaName: ctx.name1 || null,
+                            });
+                        } catch (ex) {
+                            console.error('[OW] processTurn error:', ex);
+                            return _origFetch.apply(this, args);
                         }
 
-                        if (pending.systemPrompt) {
-                            const sysIdx = payload.messages.findIndex(m => m.role === 'system');
-                            if (sysIdx >= 0) {
-                                payload.messages[sysIdx].content = pending.systemPrompt;
-                                modified = true;
-                            }
+                        if (!turnResult) {
+                            if (settings.debug) console.log('[OW] processTurn returned null — passthrough');
+                            return _origFetch.apply(this, args);
                         }
 
-                        // Process positional inject entries.
-                        // Skip any entry whose text is already handled by pending.header
-                        // or pending.brief — those are injected above via the explicit paths.
-                        for (const inj of (pending.inject || [])) {
-                            if (!inj || !inj.text) continue;
-                            if (inj.text === pending.header || inj.text === pending.brief) continue;
-                            switch (inj.position) {
-                                case 'system': {
-                                    const sysIdx = payload.messages.findIndex(m => m.role === 'system');
-                                    if (sysIdx >= 0) {
-                                        payload.messages[sysIdx].content = inj.replace
-                                            ? inj.text
-                                            : payload.messages[sysIdx].content + '\n' + inj.text;
-                                        modified = true;
-                                    }
-                                    break;
-                                }
-                                case 'before_last_user': {
-                                    let ui = -1;
-                                    for (let i = payload.messages.length - 1; i >= 0; i--) {
-                                        if (payload.messages[i].role === 'user') { ui = i; break; }
-                                    }
-                                    if (ui >= 0) {
-                                        payload.messages[ui].content = inj.text + '\n\n' + (payload.messages[ui].content || '');
-                                        modified = true;
-                                    }
-                                    break;
-                                }
-                                case 'after_last_user': {
-                                    let ui = -1;
-                                    for (let i = payload.messages.length - 1; i >= 0; i--) {
-                                        if (payload.messages[i].role === 'user') { ui = i; break; }
-                                    }
-                                    if (ui >= 0) {
-                                        payload.messages[ui].content = (payload.messages[ui].content || '') + '\n\n' + inj.text;
-                                        modified = true;
-                                    }
-                                    break;
-                                }
-                                case 'depth': {
-                                    const depth = inj.depth || 0;
-                                    const pos = Math.max(0, payload.messages.length - depth);
-                                    payload.messages.splice(pos, 0, {
-                                        role: inj.role || 'system',
-                                        content: inj.text,
-                                    });
-                                    modified = true;
-                                    if (settings.debug) {
-                                        console.log('[OW] DEPTH-0 HARD RULE injected at pos ' + pos + '/' + payload.messages.length + ':\n' + inj.text);
-                                    }
-                                    break;
-                                }
-                                case 'prefill': {
-                                    payload.messages.push({ role: 'assistant', content: inj.text });
-                                    modified = true;
-                                    break;
-                                }
-                            }
-                        }
-                        } // end legacy else branch
-                    } else if (payload.prompt && typeof payload.prompt === 'string') {
-                        if (urlStr.includes('/settings/')) throw 'skip';
+                        state = turnResult.state || state;
+                        personaState = turnResult.persona_state || personaState;
 
-                        let prompt = payload.prompt;
+                        await idbPut(STORE_STATE, sessionKey, state);
+                        await idbPut(STORE_PERSONA, personaKey, personaState);
 
-                        // ── Scene-page branch for Text Completion ────────
-                        // In text-completion mode the prompt is a single pre-formatted
-                        // string with instruct tokens.  We inject the scene page content
-                        // by finding the last user turn boundary and prepending the
-                        // header/brief/priority content before the user's text.
-                        if (settings.scenePageMode && (pending.header || pending.brief || pending.storySummary)) {
-                            // ── Full prompt control via scene page ──────────
-                            // Build the scene page as a messages array (same as
-                            // chat completion), then convert to a ChatML prompt
-                            // string.  This gives the plugin full control over
-                            // what the model sees, regardless of what ST built.
+                        lastTurnResult = { ...turnResult, _mode: 'fetch-chat' };
 
-                            // We need a messages array to pass to buildScenePage.
-                            // In text completion mode ST doesn't give us one, so
-                            // we reconstruct a minimal array from the prompt.
-                            const fakeMessages = [];
-
-                            // Extract system message (everything between first
-                            // <|im_start|>system and its <|im_end|>)
-                            const sysStart = prompt.indexOf('<|im_start|>system\n');
-                            const sysEnd = prompt.indexOf('<|im_end|>', sysStart);
-                            if (sysStart >= 0 && sysEnd > sysStart) {
-                                fakeMessages.push({
-                                    role: 'system',
-                                    content: prompt.substring(sysStart + '<|im_start|>system\n'.length, sysEnd)
-                                });
-                            }
-
-                            // Extract all user and assistant messages
-                            const msgRe = /<\|im_start\|>(user|assistant)\n([\s\S]*?)<\|im_end\|>/g;
-                            let match;
-                            while ((match = msgRe.exec(prompt)) !== null) {
-                                fakeMessages.push({ role: match[1], content: match[2].trim() });
-                            }
-
-                            // Build scene page from the reconstructed messages
-                            const sceneMessages = buildScenePage(pending, fakeMessages);
-
-                            const isPriorityTurn = pending.priorityInjection === true
-                                || pending.recentMessageCount === 1;
-
-                            // Convert to ChatML prompt string
-                            prompt = messagesToChatML(sceneMessages, isPriorityTurn);
-                            payload.prompt = prompt;
-                            window._owLastPrompt = prompt;
-                            window._owLastScenePage = {hasPriority: isPriorityTurn, headerLen: (pending.header||'').length, briefLen: (pending.brief||'').length, summaryLen: (pending.storySummary||'').length};
-
-                            // On priority/TX turns, replace the post-history
-                            // instructions that ST adds. The normal post-history
-                            // says "match their energy, 2-4 paragraphs" which
-                            // causes the model to give short responses on TX turns.
-                            if (isPriorityTurn) {
-                                const phMarker = prompt.lastIndexOf('[/PRIORITY CONTEXT]');
-                                const assistantMarker = prompt.lastIndexOf('<|im_start|>assistant');
-                                if (phMarker > 0 && assistantMarker > phMarker) {
-                                    // Replace everything between end of priority context and assistant marker
-                                    // with a TX-appropriate instruction
-                                    prompt = prompt.substring(0, phMarker + '[/PRIORITY CONTEXT]'.length) +
-                                        '\n\nWrite the full transformation scene now. Multiple detailed paragraphs.' +
-                                        prompt.substring(assistantMarker);
-                                    payload.prompt = prompt;
-                                }
-                            }
-
-                            // On priority turns, also append the write instruction
-                            // right before <|im_start|>assistant so it's the LAST
-                            // thing the model sees, after any post-history ST adds.
-                            if (isPriorityTurn) {
-                                const assistantTag = '<|im_start|>assistant';
-                                const aIdx = prompt.lastIndexOf(assistantTag);
-                                if (aIdx > 0) {
-                                    prompt = prompt.substring(0, aIdx) +
-                                        '<|im_start|>system\nWrite the full transformation scene now. Use the physical guide as your style reference. Multiple detailed paragraphs. Each physical change gets its own paragraph. Do not write a short response.<|im_end|>\n' +
-                                        prompt.substring(aIdx);
-                                    payload.prompt = prompt;
-                                }
-                            }
-
-                            window._owPendingInjection = null;
-                            opts.body = JSON.stringify(payload);
-                            if (settings.debug) {
-                                console.log('[OW] Scene page (text-completion) injected. Priority=' + (isPriorityTurn ? 'YES' : 'no') +
-                                    ' promptLen=' + prompt.length);
-                            }
-                        } else if (pending.header || pending.brief) {
-                            const injection = (pending.brief ? `[DIRECTOR]\n${pending.brief}\n[/DIRECTOR]\n\n` : '') +
-                                              (pending.header || '');
-                            const lastNewlines = prompt.lastIndexOf('\n\n');
-                            if (lastNewlines > prompt.length * 0.5) {
-                                prompt = prompt.substring(0, lastNewlines) + '\n\n' + injection + prompt.substring(lastNewlines);
-                            } else {
-                                prompt = injection + '\n\n' + prompt;
-                            }
-                            payload.prompt = prompt;
-                            modified = true;
+                        if (typeof activeLore.updateHud === 'function') {
+                            activeLore.updateHud(state, activeLore._config);
                         }
 
-                        // Best-effort positional inject for text-completion format
-                        // depth/prefill/system are not directly expressible; before/after
-                        // last user turn are approximated via the last \n\nUser: boundary.
-                        for (const inj of (pending.inject || [])) {
-                            if (!inj || !inj.text) continue;
-                            if (inj.position === 'before_last_user' || inj.position === 'after_last_user') {
-                                const lastNewlines = prompt.lastIndexOf('\n\n');
-                                if (lastNewlines > prompt.length * 0.5) {
-                                    prompt = inj.position === 'before_last_user'
-                                        ? prompt.substring(0, lastNewlines) + '\n\n' + inj.text + prompt.substring(lastNewlines)
-                                        : prompt + '\n\n' + inj.text;
-                                } else {
-                                    prompt = inj.text + '\n\n' + prompt;
-                                }
-                                modified = true;
-                            }
-                        }
-                        if (modified) payload.prompt = prompt;
-                    }
+                        // ── Build scene page: this replaces payload.messages ─
+                        // The extension has 100% control from here. ST's assembled
+                        // history is discarded and rebuilt from scratch.
+                        const pending = {
+                            header:             turnResult.header || null,
+                            brief:              turnResult.brief || null,
+                            systemPrompt:       turnResult.systemPrompt || null,
+                            inject:             turnResult.inject || [],
+                            scrubbed_messages:  turnResult.scrubbed_messages || null,
+                            storySummary:       turnResult.storySummary || null,
+                            recentMessageCount: turnResult.recentMessageCount || null,
+                            priorityInjection:  turnResult.priorityInjection || false,
+                        };
 
-                    // Apply scrubbed messages from lore engine (pill-context effect-name scrubbing)
-                    const scrubbedMsgs = pending.scrubbed_messages || (lastTurnResult && lastTurnResult.scrubbed_messages);
-                    if (scrubbedMsgs && payload.messages && Array.isArray(payload.messages)) {
-                        // The lore engine already scrubbed the chat messages; overlay them.
-                        // Build a lookup by index — scrubbed array matches the original
-                        // messages slice the lore saw, which is the last N messages.
-                        // Replace from the end of payload.messages backwards.
-                        const offset = payload.messages.length - scrubbedMsgs.length;
-                        for (let si = 0; si < scrubbedMsgs.length; si++) {
-                            const pi = offset + si;
-                            if (pi >= 0 && pi < payload.messages.length && scrubbedMsgs[si].content !== undefined) {
-                                if (payload.messages[pi].content !== scrubbedMsgs[si].content) {
-                                    payload.messages[pi].content = scrubbedMsgs[si].content;
-                                    modified = true;
-                                }
-                            }
-                        }
-                        if (settings.debug && modified) {
-                            console.log('[OW] Applied lore-scrubbed messages (pill effect names)');
-                        }
-                    }
-                    // Text-completion prompt: use lore's scrubPillText helper if available
-                    if (payload.prompt && typeof payload.prompt === 'string' && activeLore && typeof activeLore._scrubPillEffectText === 'function') {
-                        const before = payload.prompt;
-                        payload.prompt = activeLore._scrubPillEffectText(payload.prompt, activeLore._config);
-                        if (before !== payload.prompt) modified = true;
-                    }
+                        payload.messages = buildScenePage(pending, payload.messages);
 
-                    if (modified) {
-                        window._owPendingInjection = null;
+                        // Priority / TX turns: append write directive as the final
+                        // message so it's the absolute last thing the model sees.
+                        const isPriorityTurn = pending.priorityInjection || pending.recentMessageCount === 1;
+                        if (isPriorityTurn && pending.header) {
+                            payload.messages.push({
+                                role: 'system',
+                                content: pending.header +
+                                    '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.',
+                            });
+                        }
+
                         opts.body = JSON.stringify(payload);
+
                         if (settings.debug) {
-                            console.log('[OW] Fetch injection applied to:', urlStr);
-                            // Dump first system message so user can verify injection_rules are present
-                            if (payload.messages && payload.messages.length > 0) {
-                                const sysMsg = payload.messages.find(m => m.role === 'system');
-                                if (sysMsg) {
-                                    console.log('[OW] System message (first 2000 chars):\n' + (sysMsg.content || '').substring(0, 2000));
-                                }
-                            }
+                            console.log('[OW] Assembled (' + payload.messages.length + ' msgs):',
+                                payload.messages.map(m => m.role + '(' + (m.content || '').length + ')').join(', '));
+                            console.log('[OW] Turn:', {
+                                turn: state.turn,
+                                headerLen: turnResult.header?.length || 0,
+                                briefLen: turnResult.brief?.length || 0,
+                                priority: isPriorityTurn,
+                                events: turnResult.events,
+                            });
+                            if (turnResult.header) console.log('[OW] HEADER:\n' + turnResult.header);
+                            if (turnResult.brief)  console.log('[OW] BRIEF:\n'  + turnResult.brief);
+                            updateDebugPanel(turnResult, state);
                         }
+
+                    } else if (typeof payload.prompt === 'string') {
+                        // ── Text completion — not yet implemented ────────────
+                        if (settings.debug) console.log('[OW] Text completion detected — passthrough');
                     }
+
                 } catch (e) {
                     if (e !== 'skip' && settings.debug) {
-                        console.warn('[OW] Fetch intercept parse error:', e);
+                        console.warn('[OW] Fetch intercept error:', e);
                     }
                 }
             }
+
             return _origFetch.apply(this, args);
         };
         window._owFetchInstalled = true;
