@@ -1397,6 +1397,29 @@ function saveSettings() {
                 }
             } catch(e) { window._owFetchDebug.parseError = e.message; }
 
+            // ── Always scrub pill text from user messages ──────────
+            // Runs on every request, independent of scene page state.
+            if (opts?.body && typeof opts.body === 'string') {
+                try {
+                    const _scrubPayload = JSON.parse(opts.body);
+                    if (_scrubPayload.messages && Array.isArray(_scrubPayload.messages) && activeLore && typeof activeLore._scrubPillEffectText === 'function') {
+                        let _didScrub = false;
+                        for (const _sm of _scrubPayload.messages) {
+                            if (_sm.role === 'user' && _sm.content) {
+                                const _cleaned = activeLore._scrubPillEffectText(_sm.content, activeLore._config);
+                                if (_cleaned !== _sm.content) {
+                                    _sm.content = _cleaned;
+                                    _didScrub = true;
+                                }
+                            }
+                        }
+                        if (_didScrub) {
+                            opts.body = JSON.stringify(_scrubPayload);
+                        }
+                    }
+                } catch(_e) {}
+            }
+
             const effectivePending = pending || window._owScenePagePending;
             if (effectivePending && effectivePending.ts && (Date.now() - effectivePending.ts < 30000) &&
                 opts?.method === 'POST' && opts?.body && typeof opts.body === 'string' && opts.body.length > 500) {
