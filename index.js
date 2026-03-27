@@ -322,10 +322,25 @@ function buildScenePage(pending, messages) {
     const scenePage = [];
 
     // --- Layer 1: System message (character card + guidelines) ---------------
-    // ST already constructs this; keep it as-is.
+    // Filter to actor-relevant content only — engine-internal fields (Stats:,
+    // Sex Baseline:, Anatomy Snapshot:, raw build data) are stripped so the
+    // model only receives what it needs to voice the character well.
     const sysMsg = messages.find(m => m.role === 'system');
     if (sysMsg) {
         let sysContent = sysMsg.content || '';
+
+        // Strip engine-internal lines the model has no use for as an actor.
+        // These fields are already extracted by processTurn for statgen.
+        sysContent = sysContent
+            // Remove Stats: line entirely
+            .replace(/^Stats:.*$/m, '')
+            // Remove Sex Baseline: line
+            .replace(/^Sex Baseline:.*$/m, '')
+            // Remove Anatomy Snapshot block (header + indented content)
+            .replace(/^Anatomy Snapshot:\s*\n(?:.*\n)*?(?=\n[A-Z]|\n*$)/m, '')
+            // Collapse multiple blank lines to one
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
 
         // Append any system-position inject entries to the system message
         for (const inj of (pending.inject || [])) {
