@@ -41,13 +41,17 @@ Copy this prompt and fill in the bracketed sections with your actual lorebook co
 I want to convert a SillyTavern lorebook into a JavaScript lore module for the StatefulLore extension.
 
 **What StatefulLore does:**
-- It calls `processTurn()` before every AI generation. I return a `systemPrompt` string that gets injected into the prompt.
+- It calls `processTurn()` before every AI generation. I return a `header` string that gets injected into the prompt alongside the character card.
 - It calls `handleResponse()` after every AI response. I parse the response for events and update state.
 - `state` is a plain JS object I own completely. It persists across turns automatically.
 - The model never holds state — it only sees what I inject each turn.
 
+**IMPORTANT — use `header` not `systemPrompt` in the return value.** Returning `systemPrompt` replaces the character card entirely, which means the model loses all card context. Returning `header` injects your lore alongside the card so the model keeps both.
+
 **The lore module interface:**
 ```javascript
+let _hudState = null; // module-level cache for HUD display
+
 export default {
     name: 'My Lore',
     version: '1.0.0',
@@ -56,14 +60,27 @@ export default {
 
     processTurn({ state, systemText, messages, charNameHint, personaName } = {}) {
         if (!state) state = {};
-        // build systemPrompt here
-        return { systemPrompt, state };
+        const header = `[Your injected context goes here]`;
+        return { header, state }; // always use header, never systemPrompt
     },
 
     handleResponse({ assistantText, state } = {}) {
         // parse events here, update state
         return { state };
     },
+
+    getSettingsHtml(config) {
+        // config is the module config object — use _hudState for current game state
+        const state = _hudState;
+        if (!state) return `<div>Waiting for first turn...</div>`;
+        return `<div>${JSON.stringify(state)}</div>`; // replace with your actual HUD
+    },
+
+    updateHud(state, config) {
+        _hudState = state;
+        const el = document.getElementById('my-hud');
+        if (el) el.innerHTML = this.getSettingsHtml(config);
+    }
 };
 ```
 
@@ -76,10 +93,10 @@ export default {
 Please produce a complete lore module JavaScript file that:
 
 1. Defines a `state` shape covering all trackable values from the lorebook (stats, flags, inventory, etc.)
-2. Builds a `systemPrompt` in `processTurn` that injects the right context each turn, using state values where relevant
+2. Builds a `header` string in `processTurn` that injects the right context each turn — **return `{ header, state }` not `{ systemPrompt, state }`**
 3. Parses events in `handleResponse` — have the model embed structured event tags like ` ```game { "type": "...", ... } ``` ` in its responses, then apply them to state
 4. Strips event tags from `cleanedText` before returning so they don't show in chat
-5. Includes a basic HUD in `getSettingsHtml` that shows the key state values the player would want to see
+5. Includes a basic HUD in `getSettingsHtml(config)` — note the parameter is `config` not `{ state }`. Store state in a module-level `_hudState` variable updated via `updateHud(state, config)`
 
 Keep the code clean and readable. Add comments explaining what each section does.
 
@@ -89,9 +106,15 @@ Keep the code clean and readable. Add comments explaining what each section does
 
 Once the AI produces the module, review it for these things before loading it:
 
+**`header` not `systemPrompt`** — This is the most common mistake AI-generated modules make. Check that `processTurn` returns `{ header, state }` not `{ systemPrompt, state }`. Using `systemPrompt` replaces the character card entirely and the model will lose all card context.
+
+**Quote escaping** — If your lorebook content contains quoted terms like `"Void Nexus"` or `"like"`, those double quotes will break the JavaScript string they're inside. Check for any unescaped `"` characters inside string values. Either escape them with a backslash (`\"`) or ask the AI to use backtick template literals for long string values.
+
+**`getSettingsHtml` signature** — The correct signature is `getSettingsHtml(config)`, not `getSettingsHtml({ state })`. State should be stored in a module-level `_hudState` variable and updated via `updateHud`. If the AI gets this wrong the HUD will always show empty.
+
 **State shape** — Does it cover everything from your lorebook that can change? Missing a field means it won't be tracked.
 
-**System prompt** — Read the string it builds in `processTurn`. Would the model understand the world from that alone? The model gets nothing else from your lorebook — this is it.
+**Header content** — Read the string it builds in `processTurn`. Would the model understand the world from that alone? The model gets nothing else from your lorebook — this is it.
 
 **Event parsing** — Does `handleResponse` actually parse the events it defined? It's easy to define an event type and forget to handle it.
 
