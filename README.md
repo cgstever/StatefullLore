@@ -10,7 +10,9 @@ Most SillyTavern setups rely on the AI model to remember things — character st
 
 StatefulLore takes a different approach: **the model remembers nothing. The extension remembers everything.**
 
-Every single turn, StatefulLore builds a complete, authoritative snapshot of the current state — stats, effects, body, clothing, active mechanics — and injects it directly into the prompt. The model doesn't need to remember anything because it's told everything it needs to know, fresh, every turn. It just reads the scene and writes.
+Every single turn, StatefulLore builds a complete, authoritative snapshot of the current state — stats, effects, body, clothing, active mechanics, scene location — and injects it directly into the prompt. The model doesn't need to remember anything because it's told everything it needs to know, fresh, every turn. It just reads the scene and writes.
+
+A persistent pop-out panel gives you a live view of whatever the lore module wants you to see — a full character sheet, an inventory, active quests, dice rolls, stat readouts. The lore author decides what's in it.
 
 This isn't a lorebook with extra features. It's a replacement for the entire concept of how state is managed in SillyTavern.
 
@@ -31,12 +33,12 @@ All of these share the same problem: the model is still responsible for keeping 
 
 StatefulLore replaces that entire layer. None of those tools are involved. Instead:
 
-- A **lore module** (a JavaScript file) owns all state — stats, effects, flags, counters, active mechanics
+- A **lore module** (a JavaScript file) owns all state — stats, effects, flags, counters, active mechanics, and scene location
 - Every turn, that module builds a complete, authoritative snapshot of what's true right now
 - That snapshot is injected directly into the prompt as a structured header
 - The model reads it, reacts, and writes — it doesn't need to remember anything
 
-Your lorebook entries won't carry over. This isn't an enhancement to the existing system — it's a replacement for the concept.
+Your existing lorebook content isn't wasted — it's actually a head start. The world-building, character details, and rules you've already written are the hard part. A lore module is just a JavaScript file that wraps that content with persistent state and real mechanics. If you have a lorebook you've put work into, it can be converted. Guides for how to structure a lore module and how to translate an existing lorebook are on the way.
 
 ---
 
@@ -62,8 +64,9 @@ The result is a system where complex, long-running mechanics work reliably — n
 - **State persistence via IndexedDB** — character state, persona state, and lore modules are stored locally and survive page reloads
 - **Cross-device sync** — import a lore file on any browser and it uploads to your ST server; every other browser on the same ST instance auto-loads it
 - **Auto-update from GitHub** — polls `version.json` from lore repos on startup; downloads fresh modules when versions differ
-- **Scene Page mode** *(experimental, Phase 2)* — replaces full chat history with a focused per-turn scene page, reducing context usage while maintaining narrative coherence
-- **Debug mode** — toggleable logging for development and troubleshooting
+- **Scene Page mode** — replaces full chat history with a focused per-turn scene page, reducing context usage while maintaining narrative coherence
+- **Persistent pop-out HUD** — a floating panel that shows whatever the lore module author wants the player to see. A D&D lore might render a full character sheet with HP bars, XP progress, stat grid, inventory, and active quests with stage tracking. A transformation lore might show stats, active effects, dice rolls, and side effects. The lore author decides the layout — the extension just keeps it live and persistent
+- **Per-lore custom settings** — lore modules can expose their own settings UI directly in the extension panel alongside the HUD. Toggles, dropdowns, inputs — whatever the lore needs. Fully implemented by the lore author via a simple interface
 - **Multiple lore module support** — load and switch between different game systems
 
 ---
@@ -108,20 +111,20 @@ Once installed, StatefulLore automatically:
 
 1. Opens its IndexedDB stores for state persistence
 2. Checks for lore module updates from GitHub
-3. Loads the active lore module (e.g., X-Change World)
+3. Loads the active lore module (e.g., simple-lore)
 4. Intercepts every generation request to inject the module's context headers
 5. Processes AI responses through the module's event detection system
 6. Persists updated state back to IndexedDB
 
 ### Loading a Lore Module
 
-Lore modules are loaded from a raw GitHub URL. The extension ships with built-in support for X-Change World:
+Lore modules are loaded from a raw GitHub URL. The extension ships with built-in support for [simple-lore](https://github.com/cgstever/simple-lore), a full D&D 5e RPG module:
 
 ```
-https://raw.githubusercontent.com/cgstever/overwrite-st/main/x_change_world.js
+https://raw.githubusercontent.com/cgstever/simple-lore/main/lore.js
 ```
 
-Additional modules (like [simple-lore](https://github.com/cgstever/simple-lore)) can be pointed at via their raw URLs.
+Any lore module hosted on GitHub can be loaded the same way via its raw URL.
 
 ---
 
@@ -132,7 +135,7 @@ Settings are available in the SillyTavern extensions panel under **StatefullLore
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Enabled** | `true` | Master toggle for the extension |
-| **Scene Page Mode** | `false` | Experimental — replaces full chat history with a per-turn scene page |
+| **Scene Page Mode** | `true` | Replaces full chat history with a focused per-turn scene page |
 | **Recent Message Count** | `3` | Number of recent messages to include in Scene Page mode |
 | **Max Summary Tokens** | `400` | Token budget for the story summary in Scene Page mode |
 | **Debug** | `false` | Enables verbose console logging |
@@ -163,8 +166,8 @@ Settings are available in the SillyTavern extensions panel under **StatefullLore
                    │
     ┌──────────────▼──────────────┐
     │     Lore Module (JS)        │
-    │  e.g. x_change_world.js     │
     │  e.g. lore.js (simple-lore) │
+    │  e.g. your_lore.js          │
     └─────────────────────────────┘
 ```
 
@@ -210,8 +213,7 @@ The module receives full state (stats, flags, inventory, effects) and returns co
 
 ## Related Projects
 
-- [overwrite-st](https://github.com/cgstever/overwrite-st) — X-Change World lore engine (primary lore module)
-- [simple-lore](https://github.com/cgstever/simple-lore) — Minimal D&D 5e RPG module
+- [simple-lore](https://github.com/cgstever/simple-lore) — A full D&D 5e RPG lore module. Character creation across all 12 classes and 14 races, stat tracking, XP and leveling, spell slots, inventory, quests with stage tracking, conditions, and a live HUD showing a complete character sheet. A good reference for what a lore module can do.
 
 ---
 
