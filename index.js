@@ -21,7 +21,7 @@ const DEFAULTS = {
     active_lore: null,
     debug: false,
     server_lores: {},
-    scenePageMode: false,
+    scenePageMode: true,
     recentMessageCount: 3,
     maxSummaryTokens: 400,
 };
@@ -1297,17 +1297,48 @@ function saveSettings() {
                             personaBlock:       turnResult.personaBlock || null,
                         };
 
-                        payload.messages = buildScenePage(pending, payload.messages);
-
-                        // Priority / TX turns: append write directive as the final
-                        // message so it's the absolute last thing the model sees.
                         const isPriorityTurn = pending.priorityInjection || pending.recentMessageCount === 1;
-                        if (isPriorityTurn && pending.header) {
-                            payload.messages.push({
-                                role: 'system',
-                                content: pending.header +
-                                    '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.',
-                            });
+
+                        if (settings.scenePageMode) {
+                            // ── Scene Page mode: full rebuild ────────────────
+                            payload.messages = buildScenePage(pending, payload.messages);
+
+                            // Priority / TX turns: append write directive as the final
+                            // message so it's the absolute last thing the model sees.
+                            if (isPriorityTurn && pending.header) {
+                                payload.messages.push({
+                                    role: 'system',
+                                    content: pending.header +
+                                        '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.',
+                                });
+                            }
+                        } else {
+                            // ── Fallback: ST native history + header injected ─
+                            // Full chat history passes through untouched. Header,
+                            // brief, and priority directive are still injected.
+                            if (pending.header && !isPriorityTurn) {
+                                payload.messages.unshift({
+                                    role: 'system',
+                                    content: '[SCENE CONTEXT]\n' + pending.header + '\n[/SCENE CONTEXT]',
+                                });
+                            }
+
+                            // Inject brief into the last user message
+                            if (pending.brief && !isPriorityTurn) {
+                                const lastUser = [...payload.messages].reverse().find(m => m.role === 'user');
+                                if (lastUser) {
+                                    lastUser.content = `[DIRECTOR]\n${pending.brief}\n[/DIRECTOR]\n\n` + lastUser.content;
+                                }
+                            }
+
+                            // Priority / TX turns: append header + write directive
+                            if (isPriorityTurn && pending.header) {
+                                payload.messages.push({
+                                    role: 'system',
+                                    content: pending.header +
+                                        '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.',
+                                });
+                            }
                         }
 
                         opts.body = JSON.stringify(payload);
