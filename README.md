@@ -1,8 +1,8 @@
-# StatefullLore
+# StatefulLore
 
 A programmable, stateful lore engine extension for [SillyTavern](https://github.com/SillyTavern/SillyTavern) that replaces the built-in lorebook with code-driven game logic.
 
-StatefullLore loads JavaScript lore modules (like [X-Change World](https://github.com/cgstever/overwrite-st) or [Simple Lore](https://github.com/cgstever/simple-lore)) that implement full game mechanics — stat tracking, event detection, transformation systems, inventory management, and more. The extension handles SillyTavern integration, state persistence, and prompt injection; the lore module handles all game logic.
+StatefulLore loads JavaScript lore modules (like [X-Change World](https://github.com/cgstever/overwrite-st) or [Simple Lore](https://github.com/cgstever/simple-lore)) that implement full game mechanics — stat tracking, event detection, transformation systems, inventory management, and more. The extension handles SillyTavern integration, state persistence, and prompt injection; the lore module handles all game logic.
 
 ## Features
 
