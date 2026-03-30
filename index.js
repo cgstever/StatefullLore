@@ -1359,8 +1359,130 @@ function saveSettings() {
                         }
 
                     } else if (typeof payload.prompt === 'string') {
-                        // ── Text completion — not yet implemented ────────────
-                        if (settings.debug) console.log('[OW] Text completion detected — passthrough');
+                        // ── Text completion: full rebuild ────────────────────
+                        // ST has already serialized payload.messages into payload.prompt
+                        // using its own template. We discard that and rebuild from
+                        // payload.messages ourselves using ChatML, giving us the same
+                        // header injection control as in chat completion mode.
+                        if (settings.debug) console.log('[OW] Text completion detected — rebuilding prompt');
+
+                        if (!payload.messages || !Array.isArray(payload.messages)) {
+                            // No messages array to work from — passthrough
+                            if (settings.debug) console.log('[OW] Text completion: no messages array, passthrough');
+                        } else {
+                            const ctx = SillyTavern.getContext();
+                            const sessionKey = getSessionKey();
+                            const personaKey = getPersonaKey();
+
+                            let state = (await idbGet(STORE_STATE, sessionKey)) || {};
+                            let personaState = (await idbGet(STORE_PERSONA, personaKey)) || {};
+
+                            // Build systemText from the card directly
+                            let systemText = '';
+                            const _cardDataTX = ctx.characters?.[ctx.characterId];
+                            if (_cardDataTX) {
+                                const parts = [];
+                                if (_cardDataTX.description) parts.push(_cardDataTX.description);
+                                if (_cardDataTX.personality)  parts.push(_cardDataTX.personality);
+                                if (_cardDataTX.scenario)     parts.push('Scenario: ' + _cardDataTX.scenario);
+                                systemText = parts.join('\n');
+                            }
+                            const sysMsgTX = payload.messages.find(m => m.role === 'system');
+                            if (sysMsgTX && sysMsgTX.content && !systemText.includes(sysMsgTX.content.substring(0, 80))) {
+                                systemText = systemText ? systemText + '\n' + sysMsgTX.content : sysMsgTX.content;
+                            }
+
+                            const messagesTX = payload.messages.map(m => ({
+                                role: m.role,
+                                content: m.content || '',
+                            }));
+
+                            const charDataTX = ctx.characters?.[ctx.characterId];
+
+                            // Run lore engine
+                            let turnResultTX;
+                            try {
+                                turnResultTX = await activeLore.processTurn({
+                                    systemText,
+                                    messages: messagesTX,
+                                    state,
+                                    personaState,
+                                    config: activeLore._config || {},
+                                    charNameHint: charDataTX?.name || null,
+                                    personaName: ctx.name1 || null,
+                                });
+                            } catch (ex) {
+                                console.error('[OW] processTurn error (text completion):', ex);
+                                // passthrough on error
+                            }
+
+                            if (turnResultTX) {
+                                state = turnResultTX.state || state;
+                                personaState = turnResultTX.persona_state || personaState;
+
+                                await idbPut(STORE_STATE, sessionKey, state);
+                                await idbPut(STORE_PERSONA, personaKey, personaState);
+
+                                lastTurnResult = { ...turnResultTX, _mode: 'fetch-text' };
+
+                                if (typeof activeLore.updateHud === 'function') {
+                                    activeLore.updateHud(state, activeLore._config);
+                                }
+
+                                // Build the message array with header injected
+                                const pendingTX = {
+                                    header:            turnResultTX.header || null,
+                                    brief:             turnResultTX.brief || null,
+                                    systemPrompt:      turnResultTX.systemPrompt || null,
+                                    inject:            turnResultTX.inject || [],
+                                    scrubbed_messages: turnResultTX.scrubbed_messages || null,
+                                    storySummary:      turnResultTX.storySummary || null,
+                                    recentMessageCount:turnResultTX.recentMessageCount || null,
+                                    priorityInjection: turnResultTX.priorityInjection || false,
+                                    personaBlock:      turnResultTX.personaBlock || null,
+                                };
+
+                                const isPriorityTX = pendingTX.priorityInjection || pendingTX.recentMessageCount === 1;
+
+                                // Build assembled messages array same as chat mode
+                                let assembledMessages;
+                                if (settings.scenePageMode) {
+                                    assembledMessages = buildScenePage(pendingTX, payload.messages);
+                                } else {
+                                    assembledMessages = [...payload.messages];
+                                    if (pendingTX.header && !isPriorityTX) {
+                                        assembledMessages.unshift({
+                                            role: 'system',
+                                            content: '[SCENE CONTEXT]\n' + pendingTX.header + '\n[/SCENE CONTEXT]',
+                                        });
+                                    }
+                                    if (pendingTX.brief && !isPriorityTX) {
+                                        const lastUserTX = [...assembledMessages].reverse().find(m => m.role === 'user');
+                                        if (lastUserTX) {
+                                            lastUserTX.content = `[DIRECTOR]\n${pendingTX.brief}\n[/DIRECTOR]\n\n` + lastUserTX.content;
+                                        }
+                                    }
+                                    if (isPriorityTX && pendingTX.header) {
+                                        assembledMessages.push({
+                                            role: 'system',
+                                            content: pendingTX.header +
+                                                '\n\nWrite the full transformation scene now. Use the physical guide above as your style reference. Multiple detailed paragraphs describing each physical change. Each change gets its own paragraph. Do not write a short response.',
+                                        });
+                                    }
+                                }
+
+                                // Serialize to ChatML and replace payload.prompt entirely
+                                payload.prompt = messagesToChatML(assembledMessages, isPriorityTX);
+                                // Remove messages array so the backend uses our prompt string
+                                delete payload.messages;
+                                opts.body = JSON.stringify(payload);
+
+                                if (settings.debug) {
+                                    console.log('[OW] Text completion rebuilt prompt (' + payload.prompt.length + ' chars)');
+                                    if (turnResultTX.header) console.log('[OW] HEADER:\n' + turnResultTX.header);
+                                }
+                            }
+                        }
                     }
 
                 } catch (e) {
