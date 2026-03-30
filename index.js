@@ -258,6 +258,22 @@ async function checkForLoreUpdate(silent = false) {
     }
 }
 
+// -- Macro replacement -------------------------------------------------------
+
+/**
+ * Replace SillyTavern-style macros ({{user}}, {{char}}, etc.) in a string.
+ * Lore modules may use these placeholders in their output; ST's own macro
+ * system doesn't run on content the extension injects, so we handle it here.
+ */
+function resolveMacros(text, ctx) {
+    if (!text || typeof text !== 'string') return text;
+    const userName = ctx?.name1 || 'User';
+    const charName = ctx?.characters?.[ctx.characterId]?.name || ctx?.name2 || 'Character';
+    return text
+        .replace(/\{\{user\}\}/gi, userName)
+        .replace(/\{\{char\}\}/gi, charName);
+}
+
 // -- Generate interceptor ----------------------------------------------------
 
 // overwriteInterceptor is kept as a no-op so ST doesn't crash if it calls this
@@ -1286,16 +1302,21 @@ function saveSettings() {
                         // The extension has 100% control from here. ST's assembled
                         // history is discarded and rebuilt from scratch.
                         const pending = {
-                            header:             turnResult.header || null,
-                            brief:              turnResult.brief || null,
-                            systemPrompt:       turnResult.systemPrompt || null,
+                            header:             resolveMacros(turnResult.header || null, ctx),
+                            brief:              resolveMacros(turnResult.brief || null, ctx),
+                            systemPrompt:       resolveMacros(turnResult.systemPrompt || null, ctx),
                             inject:             turnResult.inject || [],
                             scrubbed_messages:  turnResult.scrubbed_messages || null,
-                            storySummary:       turnResult.storySummary || null,
+                            storySummary:       resolveMacros(turnResult.storySummary || null, ctx),
                             recentMessageCount: turnResult.recentMessageCount || null,
                             priorityInjection:  turnResult.priorityInjection || false,
-                            personaBlock:       turnResult.personaBlock || null,
+                            personaBlock:       resolveMacros(turnResult.personaBlock || null, ctx),
                         };
+
+                        // Also resolve macros in inject entries
+                        for (const inj of pending.inject) {
+                            if (inj && inj.text) inj.text = resolveMacros(inj.text, ctx);
+                        }
 
                         const isPriorityTurn = pending.priorityInjection || pending.recentMessageCount === 1;
 
@@ -1431,16 +1452,21 @@ function saveSettings() {
 
                                 // Build the message array with header injected
                                 const pendingTX = {
-                                    header:            turnResultTX.header || null,
-                                    brief:             turnResultTX.brief || null,
-                                    systemPrompt:      turnResultTX.systemPrompt || null,
+                                    header:            resolveMacros(turnResultTX.header || null, ctx),
+                                    brief:             resolveMacros(turnResultTX.brief || null, ctx),
+                                    systemPrompt:      resolveMacros(turnResultTX.systemPrompt || null, ctx),
                                     inject:            turnResultTX.inject || [],
                                     scrubbed_messages: turnResultTX.scrubbed_messages || null,
-                                    storySummary:      turnResultTX.storySummary || null,
+                                    storySummary:      resolveMacros(turnResultTX.storySummary || null, ctx),
                                     recentMessageCount:turnResultTX.recentMessageCount || null,
                                     priorityInjection: turnResultTX.priorityInjection || false,
-                                    personaBlock:      turnResultTX.personaBlock || null,
+                                    personaBlock:      resolveMacros(turnResultTX.personaBlock || null, ctx),
                                 };
+
+                                // Also resolve macros in inject entries
+                                for (const inj of pendingTX.inject) {
+                                    if (inj && inj.text) inj.text = resolveMacros(inj.text, ctx);
+                                }
 
                                 const isPriorityTX = pendingTX.priorityInjection || pendingTX.recentMessageCount === 1;
 
