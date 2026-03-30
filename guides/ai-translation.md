@@ -108,9 +108,15 @@ Once the AI produces the module, review it for these things before loading it:
 
 **`header` not `systemPrompt`** — This is the most common mistake AI-generated modules make. Check that `processTurn` returns `{ header, state }` not `{ systemPrompt, state }`. Using `systemPrompt` replaces the character card entirely and the model will lose all card context.
 
-**Quote escaping** — If your lorebook content contains quoted terms like `"Void Nexus"` or `"like"`, those double quotes will break the JavaScript string they're inside. Check for any unescaped `"` characters inside string values. Either escape them with a backslash (`\"`) or ask the AI to use backtick template literals for long string values.
+**State guard** — `if (!state) state = this.init()` only catches a completely null state. If state was previously saved to IndexedDB with a different shape (e.g. you added a new field later), it will load as a partial object and crash when your code tries to read missing fields. A safer guard is `if (!state || !state.yourCriticalField) state = this.init()` — checking for a field that must always exist.
+
+**Character name collisions** — If any character or entity in your module shares a name with a well-known fictional character (from games, anime, comics, etc.), the model may override your definition with its training data. Add a disambiguation line at the top of that character's lore entry making clear which version applies. You can also reinforce this in the instructions block of `processTurn`.
+
+**Quote escaping** — If your lorebook content contains quoted terms, those double quotes will break the JavaScript string they're inside. Check for any unescaped `"` characters inside string values. Either escape them with a backslash (`\"`) or ask the AI to use backtick template literals for long string values.
 
 **`getSettingsHtml` signature** — The correct signature is `getSettingsHtml(config)`, not `getSettingsHtml({ state })`. State should be stored in a module-level `_hudState` variable and updated via `updateHud`. If the AI gets this wrong the HUD will always show empty.
+
+**HUD nesting** — Don't set the HUD element's `innerHTML` to the full output of `getSettingsHtml`. That function returns the wrapper div (which contains the element's id), so calling it from `updateHud` nests it inside itself every turn. Use a separate `_getHudContent()` helper for the inner HTML and call that from `updateHud` instead.
 
 **State shape** — Does it cover everything from your lorebook that can change? Missing a field means it won't be tracked.
 
