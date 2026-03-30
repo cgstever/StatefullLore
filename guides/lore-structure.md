@@ -22,13 +22,14 @@ const MyLore = {
     processTurn({ state, systemText, messages, charNameHint, personaName } = {}) {
         // Called before every generation. Build your prompt injection here.
         // state is the persisted game state object — add/read whatever you need.
-        // Return { systemPrompt, state } at minimum.
-        if (!state) state = {};
+        // Return { header, state } at minimum. Use header, not systemPrompt —
+        // systemPrompt replaces the character card entirely, header injects alongside it.
+        if (!state || !state.yourCriticalField) state = this.init();
         state.turn = (state.turn || 0) + 1;
 
-        const systemPrompt = `[Your injected context goes here]`;
+        const header = `[Your injected context goes here]`;
 
-        return { systemPrompt, state };
+        return { header, state };
     },
 
     handleResponse({ assistantText, state } = {}) {
@@ -59,7 +60,9 @@ Called before every AI generation. This is where you build what the model sees.
 **Return:**
 ```javascript
 return {
-    systemPrompt,   // String injected as a system message — the main way to give the model context
+    header,         // String injected alongside the character card — the main way to give the model context.
+                    // Use header, not systemPrompt. systemPrompt replaces the card entirely;
+                    // header injects your lore alongside it so the model keeps both.
     state,          // Updated state object — always return this
 };
 ```
@@ -153,11 +156,23 @@ onSettingsRendered(config, helpers) {
 
 Called every turn after state updates. Use it to refresh your HUD without waiting for the panel to re-render.
 
+**Important:** Don't set the HUD element's `innerHTML` to the full output of `getSettingsHtml` — that function returns the wrapper div (which has the element's id on it), so you'd end up nesting that div inside itself on every turn. Instead, split your HUD into a wrapper and an inner content helper, and only replace the inner content in `updateHud`:
+
 ```javascript
+_getHudContent() {
+    const state = _hudState;
+    if (!state) return `<span>Waiting for first turn...</span>`;
+    return `<!-- your HUD inner HTML here, no wrapper div -->`;
+},
+
+getSettingsHtml(config) {
+    return `<div id="my-hud" style="...">${this._getHudContent()}</div>`;
+},
+
 updateHud(state, config) {
     _hudState = state;
     const el = document.getElementById('my-hud');
-    if (el) el.innerHTML = buildMyHudHtml(state);
+    if (el) el.innerHTML = this._getHudContent();
 }
 ```
 
