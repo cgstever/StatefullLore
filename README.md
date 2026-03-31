@@ -66,6 +66,7 @@ The result is a system where complex, long-running mechanics work reliably — n
 - **Auto-update from GitHub** — polls `version.json` from lore repos on startup; downloads fresh modules when versions differ
 - **Scene Page mode** — replaces full chat history with a focused per-turn scene page, reducing context usage while maintaining narrative coherence
 - **Persistent pop-out HUD** — a floating panel that shows whatever the lore module author wants the player to see. A D&D lore might render a full character sheet with HP bars, XP progress, stat grid, inventory, and active quests with stage tracking. A transformation lore might show stats, active effects, dice rolls, and side effects. The lore author decides the layout — the extension just keeps it live and persistent
+- **Macro resolution** — `{{user}}` and `{{char}}` in lore module output are automatically replaced with the active persona and character names before prompt injection, so lore authors never need to hardcode names
 - **Per-lore custom settings** — lore modules can expose their own settings UI directly in the extension panel alongside the HUD. Toggles, dropdowns, inputs — whatever the lore needs. Fully implemented by the lore author via a simple interface
 - **Multiple lore module support** — load and switch between different game systems
 
@@ -201,15 +202,15 @@ export default {
     name: "My Lore Module",
     version: "1.0.0",
 
-    // Called before each AI generation with current state
-    processTurn(state, context) { ... },
+    // Called before each AI generation — build your prompt injection here
+    processTurn({ state, systemText, messages, charNameHint, personaName }) { ... },
 
-    // Called after AI responds to detect and apply events
-    handleResponse(response, state) { ... },
+    // Called after AI responds — parse events, update state
+    handleResponse({ assistantText, state }) { ... },
 };
 ```
 
-The module receives full state (stats, flags, inventory, effects) and returns context headers for prompt injection and state mutations to persist.
+The module receives full state (stats, flags, inventory, effects) and the chat messages, and returns context headers for prompt injection and state mutations to persist. `{{user}}` and `{{char}}` macros in module output are resolved automatically by the engine.
 
 ---
 
