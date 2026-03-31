@@ -94,9 +94,12 @@ Please produce a complete lore module JavaScript file that:
 
 1. Defines a `state` shape covering all trackable values from the lorebook (stats, flags, inventory, etc.)
 2. Builds a `header` string in `processTurn` that injects the right context each turn — **return `{ header, state }` not `{ systemPrompt, state }`**
-3. Parses events in `handleResponse` — have the model embed structured event tags like ` ```game { "type": "...", ... } ``` ` in its responses, then apply them to state
-4. Strips event tags from `cleanedText` before returning so they don't show in chat
-5. Includes a basic HUD in `getSettingsHtml(config)` — note the parameter is `config` not `{ state }`. Store state in a module-level `_hudState` variable updated via `updateHud(state, config)`
+3. Optionally returns a `brief` string — a short per-turn directive injected closer to the model's generation point (e.g. "you are transforming this turn")
+4. Includes a **message scanner** in `processTurn` that checks the last user message for known keywords and injects the relevant description into the header on the same turn — so the model has context *before* it writes, not one turn late
+5. Uses `{{user}}` and `{{char}}` macros in lore strings instead of hardcoded names — the engine resolves them automatically
+6. Parses events in `handleResponse` — have the model embed structured event tags like ` ```game { "type": "...", ... } ``` ` in its responses, then apply them to state
+7. Strips event tags from `cleanedText` before returning so they don't show in chat
+8. Includes a basic HUD in `getSettingsHtml(config)` — note the parameter is `config` not `{ state }`. Store state in a module-level `_hudState` variable updated via `updateHud(state, config)`
 
 Keep the code clean and readable. Add comments explaining what each section does.
 
@@ -110,7 +113,9 @@ Once the AI produces the module, review it for these things before loading it:
 
 **State guard** — `if (!state) state = this.init()` only catches a completely null state. If state was previously saved to IndexedDB with a different shape (e.g. you added a new field later), it will load as a partial object and crash when your code tries to read missing fields. A safer guard is `if (!state || !state.yourCriticalField) state = this.init()` — checking for a field that must always exist.
 
-**Character name collisions** — If any character or entity in your module shares a name with a well-known fictional character (from games, anime, comics, etc.), the model may override your definition with its training data. Add a disambiguation line at the top of that character's lore entry making clear which version applies. You can also reinforce this in the instructions block of `processTurn`.
+**Message scanning** — If your module has things the model needs to act on the *same turn* the user mentions them (transformations, spell casts, location changes, etc.), you need a message scanner. Without one, the model won't have the relevant description until the next turn — after state has already updated — and it will fill the response with guesswork. Scan the last user message for known keywords, and if one matches, inject that entry's full description into the header as an "incoming" section on the same turn. See the lore-structure guide for the pattern.
+
+**Macros** — Use `{{user}}` and `{{char}}` in your lore strings instead of hardcoding names. The engine resolves them automatically to the active persona and character names before injection.
 
 **Quote escaping** — If your lorebook content contains quoted terms, those double quotes will break the JavaScript string they're inside. Check for any unescaped `"` characters inside string values. Either escape them with a backslash (`\"`) or ask the AI to use backtick template literals for long string values.
 
@@ -144,9 +149,11 @@ Paste that URL into the StatefulLore extension panel under "Lore Module URL" and
 
 ## Tips
 
-**Start small.** Don't try to convert a huge lorebook all at once. Get a minimal version working first — basic state shape, a system prompt that injects one or two things, one event. Then expand.
+**Start small.** Don't try to convert a huge lorebook all at once. Get a minimal version working first — basic state shape, a header that injects one or two things, one event. Then expand.
 
-**The system prompt is everything.** Spend most of your time getting this right. If the model doesn't have the information it needs in the system prompt, it will make things up or forget. Be explicit.
+**The header is everything.** Spend most of your time getting this right. If the model doesn't have the information it needs in the header, it will make things up or forget. Be explicit.
+
+**Add a message scanner early.** If your lore has anything the model needs to act on the same turn (transformations, spells, location changes), the scanner is what makes that work. Without it, the model writes blind and you get garbage on the trigger turn.
 
 **Events are optional to start.** You can build a working module with no event parsing at all — just state you set manually and inject every turn. Add event-driven updates once the basics work.
 
