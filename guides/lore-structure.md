@@ -63,11 +63,38 @@ return {
     header,         // String injected alongside the character card — the main way to give the model context.
                     // Use header, not systemPrompt. systemPrompt replaces the card entirely;
                     // header injects your lore alongside it so the model keeps both.
+    brief,          // Optional. A short per-turn directive injected as a [DIRECTOR] block closer to the
+                    // model's generation point. Use this for active instructions ("you are transforming this
+                    // turn", "maintain this form") that shouldn't be buried in the header.
     state,          // Updated state object — always return this
 };
 ```
 
-The `systemPrompt` you return is what gets injected into the prompt every turn. This is where you put the character's current stats, active effects, scene location, rules the model should follow, quest state — anything the model needs to know right now.
+The `header` you return is what gets injected into the prompt every turn. This is where you put the character's current stats, active effects, scene location, event format rules, quest state — anything the model needs to know right now.
+
+**Macros:** You can use `{{user}}` and `{{char}}` anywhere in your header, brief, or other returned strings. The engine resolves them to the active persona name and character name before injection. This means your lore descriptions can reference the player and character by name without hardcoding.
+
+### Message Scanning
+
+If your module needs the model to act on something the *same turn* the user mentions it (e.g. a form change, a spell cast, a location transition), you need a message scanner. Without one, the model won't have the relevant context until the *next* turn — after state has already updated.
+
+The pattern: scan the last user message for known keywords, and if one matches, inject extra context into the header for that turn.
+
+```javascript
+function detectPending(messages, knownKeys) {
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUser || !lastUser.content) return null;
+    const text = lastUser.content.toLowerCase();
+    // Check longest keys first to avoid partial matches
+    const sorted = [...knownKeys].sort((a, b) => b.length - a.length);
+    for (const key of sorted) {
+        if (text.includes(key.toLowerCase())) return key;
+    }
+    return null;
+}
+```
+
+Call this in `processTurn` and use the result to inject the relevant description into the header on the same turn. This is how you get the model to write a transformation, cast a spell, or enter a location correctly on the turn the user asks for it — not one turn late.
 
 ---
 
@@ -204,11 +231,12 @@ See [simple-lore](https://github.com/cgstever/simple-lore) for a full working im
 The flow every turn:
 
 1. Player sends a message
-2. Extension calls `processTurn` → you return a `systemPrompt`
-3. Extension injects that into the prompt alongside the chat history
-4. Model generates a response
-5. Extension calls `handleResponse` → you parse events, update state
-6. Extension persists state to IndexedDB
-7. Extension calls `updateHud` → your HUD refreshes
+2. Extension calls `processTurn` → you return a `header` (and optionally `brief`)
+3. Extension resolves `{{user}}`/`{{char}}` macros in your output
+4. Extension injects the header alongside the character card (and brief near the generation point)
+5. Model generates a response
+6. Extension calls `handleResponse` → you parse events, update state
+7. Extension persists state to IndexedDB
+8. Extension calls `updateHud` → your HUD refreshes
 
-The model never holds state. You do. Every turn it gets a fresh, authoritative picture of the world from your `systemPrompt`.
+The model never holds state. You do. Every turn it gets a fresh, authoritative picture of the world from your `header`.
