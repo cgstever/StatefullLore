@@ -6,7 +6,7 @@
     "js": "index.js",
     "css": "style.css",
     "author": "Cody",
-    "version": "1.159.0",
+    "version": "1.162.0",
     "homePage": "https://github.com/cgstever/StatefulLore",
     "auto_update": true,
     "generate_interceptor": "overwriteInterceptor"
