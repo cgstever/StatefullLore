@@ -358,6 +358,13 @@ function buildScenePage(pending, messages) {
             .replace(/\n{3,}/g, '\n\n')
             .trim();
 
+        // Apply lore-engine-driven card strip patterns (engine owns what to remove)
+        for (const pat of (pending.cardStripPatterns || [])) {
+            try { sysContent = sysContent.replace(new RegExp(pat, 'm'), ''); }
+            catch(e) { /* skip bad pattern */ }
+        }
+        sysContent = sysContent.replace(/\n{3,}/g, '\n\n').trim();
+
         // Post-TX: replace old Appearance + Anatomy with transformed body descriptors
         if (pending.anatomyOverride) {
             // Strip old Appearance block
