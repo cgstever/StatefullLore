@@ -337,6 +337,12 @@ function messagesToChatML(messages, isPriorityTurn) {
 function buildScenePage(pending, messages) {
     const scenePage = [];
 
+    // --- Scrub: swap in scrubbed messages if the lore engine provided them ---
+    // The engine strips pill color/effect names so the model never sees them.
+    if (pending.scrubbed_messages && pending.scrubbed_messages.length) {
+        messages = pending.scrubbed_messages;
+    }
+
     // --- Layer 1: System message (character card + guidelines) ---------------
     // Filter to actor-relevant content only — engine-internal fields (Stats:,
     // Sex Baseline:, Anatomy Snapshot:, raw build data) are stripped so the
@@ -1378,6 +1384,11 @@ function saveSettings() {
                             // ── Fallback: ST native history + header injected ─
                             // Full chat history passes through untouched. Header,
                             // brief, and priority directive are still injected.
+
+                            // Scrub pill names from messages in fallback mode too
+                            if (pending.scrubbed_messages && pending.scrubbed_messages.length) {
+                                payload.messages = pending.scrubbed_messages;
+                            }
                             if (pending.header && !isPriorityTurn) {
                                 payload.messages.unshift({
                                     role: 'system',
@@ -1517,7 +1528,9 @@ function saveSettings() {
                                 if (settings.scenePageMode) {
                                     assembledMessages = buildScenePage(pendingTX, payload.messages);
                                 } else {
-                                    assembledMessages = [...payload.messages];
+                                    assembledMessages = (pendingTX.scrubbed_messages && pendingTX.scrubbed_messages.length)
+                                        ? [...pendingTX.scrubbed_messages]
+                                        : [...payload.messages];
                                     if (pendingTX.header && !isPriorityTX) {
                                         assembledMessages.unshift({
                                             role: 'system',
