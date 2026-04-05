@@ -148,11 +148,13 @@ async function loadLoreFromSource(source, key) {
 
 async function uploadLoreToServer(source, key) {
     const uploadName = key + '.lore.txt';
-    const blob = new Blob([source], { type: 'text/plain' });
-    const formData = new FormData();
-    formData.append('file', blob, uploadName);
-    const headers = SillyTavern.getContext().getRequestHeaders({ omitContentType: true });
-    const resp = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+    const headers = SillyTavern.getContext().getRequestHeaders();
+    const data = btoa(unescape(encodeURIComponent(source)));
+    const resp = await fetch('/api/files/upload', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: uploadName, data }),
+    });
     if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`ST file upload failed ${resp.status}: ${text.slice(0, 200)}`);
