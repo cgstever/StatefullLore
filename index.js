@@ -40,34 +40,6 @@ let lastTurnResult = null;
 
 // -- Keys --------------------------------------------------------------------
 
-function getSessionKey() {
-    const ctx = SillyTavern.getContext();
-    const chatId = ctx.getCurrentChatId?.() || ctx.characters?.[ctx.characterId]?.chat || 'unknown';
-    // ctx.characterId is undefined in group chats; fall back to the last
-    // non-user, non-system message name so each character gets its own bucket.
-    let charName = ctx.characters?.[ctx.characterId]?.name;
-    if (!charName) {
-        const chatLog = ctx.chat || [];
-        for (let i = chatLog.length - 1; i >= 0; i--) {
-            const m = chatLog[i];
-            if (!m.is_user && !m.is_system && m.name) {
-                charName = m.name;
-                break;
-            }
-        }
-    }
-    charName = charName || 'unknown';
-    return `${charName}::${chatId}`;
-}
-
-function getPersonaKey() {
-    const ctx = SillyTavern.getContext();
-    // Include chatId so pill/effect state is scoped per chat, not globally per persona.
-    // Base stats are re-seeded from rs.personas on turn 1 so this is safe.
-    const chatId = ctx.getCurrentChatId?.() || ctx.characters?.[ctx.characterId]?.chat || 'unknown';
-    return `persona::${ctx.name1 || 'User'}::${chatId}`;
-}
-
 // -- Message-based state helpers ---------------------------------------------
 
 function readMsgState() {
@@ -122,6 +94,25 @@ async function writePersonaState(personaState) {
             msg.variables = msg.variables || {};
             msg.variables[msg.swipe_id || 0] = {
                 ...(msg.variables[msg.swipe_id || 0] || {}),
+                personaState,
+            };
+            await ctx.saveChat();
+            return;
+        }
+    }
+}
+
+// Write both state and personaState in a single saveChat call
+async function writeTurnState(state, personaState) {
+    const ctx = SillyTavern.getContext();
+    const chat = ctx.chat || [];
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (!msg.is_user && !msg.is_system) {
+            msg.variables = msg.variables || {};
+            msg.variables[msg.swipe_id || 0] = {
+                ...(msg.variables[msg.swipe_id || 0] || {}),
+                state,
                 personaState,
             };
             await ctx.saveChat();
@@ -622,7 +613,7 @@ async function onMessageReceived(messageIndex) {
     }
 
     if (result?.ok) {
-        await writeMsgState(result.state);
+        await writeTurnState(result.state, lastTurnResult?._personaState);
         const cleaned = result.cleanedText || result.cleaned_text;
         if (cleaned && cleaned !== assistantText) {
             msg.mes = cleaned;
@@ -635,14 +626,9 @@ async function onMessageReceived(messageIndex) {
         if (activeLore && typeof activeLore.updateHud === 'function') {
             activeLore.updateHud(result.state, activeLore._config);
         }
-    } else if (lastTurnResult?.state) {
+    } else {
         // handleResponse didn't run — persist processTurn state to the new message
-        await writeMsgState(lastTurnResult.state);
-    }
-
-    // Always persist persona state from this turn to the new AI message
-    if (lastTurnResult?._personaState !== undefined) {
-        await writePersonaState(lastTurnResult._personaState);
+        await writeTurnState(lastTurnResult?.state, lastTurnResult?._personaState);
     }
 
     lastTurnResult = null;
@@ -1173,7 +1159,7 @@ function saveSettings() {
         bindSettingsEvents();
         renderModuleSettings();
 
-        // Seed the HUD with existing state from IDB so it doesn't show "Waiting..."
+        // Seed the HUD with existing state so it doesn't show "Waiting..."
         try {
             const seedState = readMsgState();
             if (seedState && activeLore && typeof activeLore.updateHud === 'function') {
@@ -1196,7 +1182,7 @@ function saveSettings() {
                     }
                     // Also refresh the debug panel if open
                     if (settings.debug) refreshDebugPanel();
-                    console.log('[OW] Chat changed — reloaded state from IDB');
+                    console.log('[OW] Chat changed — reloaded state from message variables');
                 } catch (e) {
                     console.warn('[OW] Failed to reload state on chat change:', e);
                 }
@@ -1222,7 +1208,6 @@ function saveSettings() {
                     if (payload.messages && Array.isArray(payload.messages)) {
                         // ── Chat completion: full pipeline ───────────────────
                         const ctx = SillyTavern.getContext();
-                        const sessionKey = getSessionKey();
 
                         let state = readMsgState() || {};
                         let personaState = readPersonaState() || {};
@@ -1388,7 +1373,6 @@ function saveSettings() {
                             if (settings.debug) console.log('[OW] Text completion: no messages array, passthrough');
                         } else {
                             const ctx = SillyTavern.getContext();
-                            const sessionKey = getSessionKey();
 
                             let state = readMsgState() || {};
                             let personaState = readPersonaState() || {};
