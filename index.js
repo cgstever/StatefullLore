@@ -26,7 +26,7 @@ const DEFAULTS = {
     maxSummaryTokens: 400,
 };
 
-// -- Auto-update config ------------------------------------------------------
+// -- Auto-update (legacy defaults for x_change_world) -----------------------
 
 const XCHANGE_LORE_URL = 'https://raw.githubusercontent.com/cgstever/overwrite-st/main/x_change_world.js';
 const XCHANGE_VERSION_URL = 'https://raw.githubusercontent.com/cgstever/overwrite-st/main/version.json';
@@ -165,13 +165,21 @@ async function uploadLoreToServer(source, key) {
     return serverPath;
 }
 
-async function importAndActivateLore(source, filename) {
+async function importAndActivateLore(source, filename, { sourceUrl = null } = {}) {
     const key = filename.replace(/\.js$/, '');
     const lore = await loadLoreFromSource(source, key);
     try {
         const serverPath = await uploadLoreToServer(source, key);
         settings.server_lores = settings.server_lores || {};
-        settings.server_lores[key] = { path: serverPath, name: lore.name || key, version: lore.version || '?' };
+        const entry = { path: serverPath, name: lore.name || key, version: lore.version || '?' };
+        if (sourceUrl) entry.sourceUrl = sourceUrl;
+        if (lore.versionUrl) entry.versionUrl = lore.versionUrl;
+        // Legacy fallback: tag x_change_world with its known URLs
+        if (key === XCHANGE_LORE_KEY) {
+            entry.sourceUrl = entry.sourceUrl || XCHANGE_LORE_URL;
+            entry.versionUrl = entry.versionUrl || XCHANGE_VERSION_URL;
+        }
+        settings.server_lores[key] = entry;
         console.log(`[OW] Lore uploaded to ST server: ${serverPath}`);
     } catch (ex) {
         console.warn('[OW] Server upload failed:', ex.message);
@@ -188,7 +196,7 @@ async function loadLoreFromUrl(url) {
     if (!resp.ok) throw new Error(`Fetch ${url} failed: ${resp.status}`);
     const source = await resp.text();
     const filename = url.split('/').pop().split('?')[0] || 'lore.js';
-    return importAndActivateLore(source, filename);
+    return importAndActivateLore(source, filename, { sourceUrl: url });
 }
 
 async function activateStoredLore(key) {
@@ -223,22 +231,37 @@ async function syncLoreFromServer(key, serverPath) {
 // -- Auto-update -------------------------------------------------------------
 
 async function checkForLoreUpdate(silent = false) {
+    const key = settings.active_lore;
+    const entry = settings.server_lores?.[key];
+    const versionUrl = (typeof entry === 'object' && entry?.versionUrl) || null;
+    const sourceUrl  = (typeof entry === 'object' && entry?.sourceUrl)  || null;
+
+    if (!sourceUrl) {
+        if (!silent) showLoreInfo('No source URL stored for this lore.', 'err');
+        return false;
+    }
+
     if (!silent) showLoreInfo('Checking for updates...', '');
     try {
-        const resp = await fetch(XCHANGE_VERSION_URL + '?t=' + Date.now());
-        if (!resp.ok) throw new Error(`Version check failed: ${resp.status}`);
-        const { version: remoteVersion } = await resp.json();
-        const localVersion = activeLore?.version ?? null;
+        // If a versionUrl is available, do a lightweight version check first
+        if (versionUrl) {
+            const resp = await fetch(versionUrl + (versionUrl.includes('?') ? '&' : '?') + 't=' + Date.now());
+            if (!resp.ok) throw new Error(`Version check failed: ${resp.status}`);
+            const { version: remoteVersion } = await resp.json();
+            const localVersion = activeLore?.version ?? null;
 
-        if (localVersion === remoteVersion) {
-            if (!silent) showLoreInfo(`Already up to date: v${localVersion}`, 'ok');
-            return false;
+            if (localVersion === remoteVersion) {
+                if (!silent) showLoreInfo(`Already up to date: v${localVersion}`, 'ok');
+                return false;
+            }
+
+            const fromStr = localVersion ? `v${localVersion}` : 'none';
+            showLoreInfo(`Updating lore: ${fromStr} → v${remoteVersion}…`, '');
         }
 
-        const fromStr = localVersion ? `v${localVersion}` : 'none';
-        showLoreInfo(`Updating lore: ${fromStr} → v${remoteVersion}…`, '');
-        await loadLoreFromUrl(XCHANGE_LORE_URL);
-        showLoreInfo(`Updated to v${remoteVersion} ✓`, 'ok');
+        // Re-fetch the full lore from its source URL
+        await loadLoreFromUrl(sourceUrl);
+        showLoreInfo(`Updated to v${activeLore?.version || '?'} ✓`, 'ok');
         return true;
     } catch (ex) {
         if (!silent) showLoreInfo(`Update check failed: ${ex.message}`, 'err');
@@ -663,7 +686,7 @@ function getSettingsHtml() {
                     <button id="ow-import-btn" class="menu_button" title="Import a .js lore file from your device">Import (.js)</button>
                     <button id="ow-import-url-btn" class="menu_button" title="Load a lore file from a URL">From URL</button>
                     <button id="ow-reload-btn" class="menu_button">Reload</button>
-                    <button id="ow-update-btn" class="menu_button" title="Check GitHub for a newer version of X-Change World lore">Check Update</button>
+                    <button id="ow-update-btn" class="menu_button" title="Check for a newer version of the active lore">Check Update</button>
                     <button id="ow-remove-btn" class="menu_button redWarning">Remove</button>
                 </div>
                 <div id="ow-info" class="ow-status" style="display:none;margin-top:6px;"></div>
@@ -1137,8 +1160,9 @@ function saveSettings() {
     if (settings.active_lore) {
         try {
             await activateStoredLore(settings.active_lore);
-            // Silently check for a newer xchange version — only when xchange is active
-            if (settings.active_lore === XCHANGE_LORE_KEY) {
+            // Silently check for a newer version if this lore has a sourceUrl
+            const activeEntry = settings.server_lores?.[settings.active_lore];
+            if (typeof activeEntry === 'object' && activeEntry?.sourceUrl) {
                 checkForLoreUpdate(true).catch(() => {});
             }
         } catch (ex) {
