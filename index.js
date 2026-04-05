@@ -752,6 +752,8 @@ function getSettingsHtml() {
                     <select id="ow-location-override" class="text_pole" style="width:100%;">
                         <option value="">(Card Default)</option>
                         <optgroup label="Residential">
+                            <option value="small house">Small House</option>
+                            <option value="rich house">Rich House</option>
                             <option value="bedroom">Bedroom</option>
                             <option value="bathroom">Bathroom</option>
                             <option value="living room">Living Room</option>
