@@ -751,47 +751,71 @@ function getSettingsHtml() {
                     <span>Location:</span>
                     <select id="ow-location-override" class="text_pole" style="width:100%;">
                         <option value="">(Card Default)</option>
-                        <optgroup label="Residential">
-                            <option value="small house">Small House</option>
-                            <option value="rich house">Rich House</option>
-                            <option value="bedroom">Bedroom</option>
-                            <option value="bathroom">Bathroom</option>
-                            <option value="living room">Living Room</option>
-                            <option value="kitchen">Kitchen</option>
-                            <option value="penthouse">Penthouse</option>
+                        <optgroup label="Home">
+                            <option value="cramped studio apartment">Studio Apartment</option>
+                            <option value="modest suburban house">Suburban House</option>
+                            <option value="sprawling luxury estate">Luxury Estate</option>
+                            <option value="high-rise penthouse suite">Penthouse Suite</option>
+                            <option value="master bedroom">Master Bedroom</option>
+                            <option value="steamy bathroom">Bathroom</option>
+                            <option value="open-plan kitchen">Kitchen</option>
+                            <option value="private basement">Basement</option>
+                            <option value="secluded backyard pool">Pool Area</option>
                         </optgroup>
-                        <optgroup label="Commercial">
-                            <option value="office">Office</option>
-                            <option value="hotel room">Hotel Room</option>
-                            <option value="club">Club</option>
-                            <option value="bar">Bar</option>
-                            <option value="restaurant">Restaurant</option>
-                            <option value="gym">Gym</option>
-                            <option value="locker room">Locker Room</option>
+                        <optgroup label="Nightlife &amp; Social">
+                            <option value="dim VIP lounge in a nightclub">VIP Lounge</option>
+                            <option value="crowded dance floor">Dance Floor</option>
+                            <option value="seedy dive bar">Dive Bar</option>
+                            <option value="upscale cocktail bar">Cocktail Bar</option>
+                            <option value="private karaoke room">Karaoke Room</option>
+                            <option value="rooftop bar overlooking the city">Rooftop Bar</option>
+                            <option value="back room of a strip club">Strip Club Back Room</option>
                         </optgroup>
-                        <optgroup label="Academic">
-                            <option value="classroom">Classroom</option>
-                            <option value="library">Library</option>
-                            <option value="laboratory">Laboratory</option>
+                        <optgroup label="Hospitality">
+                            <option value="cheap motel room">Motel Room</option>
+                            <option value="luxury hotel suite">Hotel Suite</option>
+                            <option value="resort cabana by the water">Resort Cabana</option>
+                            <option value="hot spring bath house">Bath House</option>
+                            <option value="private spa treatment room">Spa Room</option>
                         </optgroup>
-                        <optgroup label="Fantasy">
-                            <option value="dungeon">Dungeon</option>
-                            <option value="throne room">Throne Room</option>
-                            <option value="tavern">Tavern</option>
-                            <option value="forest clearing">Forest Clearing</option>
-                            <option value="cave">Cave</option>
-                            <option value="castle chamber">Castle Chamber</option>
+                        <optgroup label="Work &amp; School">
+                            <option value="corner office with floor-to-ceiling windows">Corner Office</option>
+                            <option value="empty classroom after hours">Classroom</option>
+                            <option value="university dorm room">Dorm Room</option>
+                            <option value="quiet library study room">Library</option>
+                            <option value="sterile research laboratory">Laboratory</option>
+                            <option value="gym locker room after closing">Locker Room</option>
+                            <option value="backstage dressing room">Dressing Room</option>
+                        </optgroup>
+                        <optgroup label="Transport">
+                            <option value="back seat of a luxury sedan">Back Seat</option>
+                            <option value="private jet cabin">Private Jet</option>
+                            <option value="sleeper train compartment">Train Compartment</option>
+                            <option value="yacht master cabin">Yacht Cabin</option>
                         </optgroup>
                         <optgroup label="Outdoor">
-                            <option value="alley">Alley</option>
-                            <option value="rooftop">Rooftop</option>
-                            <option value="beach">Beach</option>
-                            <option value="park">Park</option>
+                            <option value="dark alleyway">Alley</option>
+                            <option value="secluded beach at night">Beach</option>
+                            <option value="dense forest clearing">Forest Clearing</option>
+                            <option value="rooftop overlooking the skyline">Rooftop</option>
+                            <option value="empty parking garage">Parking Garage</option>
+                            <option value="overgrown garden behind a manor">Garden</option>
+                        </optgroup>
+                        <optgroup label="Fantasy &amp; Historical">
+                            <option value="torch-lit dungeon cell">Dungeon Cell</option>
+                            <option value="opulent throne room">Throne Room</option>
+                            <option value="candlelit castle bedchamber">Castle Bedchamber</option>
+                            <option value="rowdy tavern upstairs room">Tavern Room</option>
+                            <option value="hidden cave behind a waterfall">Hidden Cave</option>
+                            <option value="alchemist workshop">Alchemist Workshop</option>
+                            <option value="temple inner sanctum">Temple Sanctum</option>
                         </optgroup>
                         <optgroup label="Sci-Fi">
-                            <option value="space station">Space Station</option>
-                            <option value="starship bridge">Starship Bridge</option>
-                            <option value="cryo bay">Cryo Bay</option>
+                            <option value="orbital space station quarters">Station Quarters</option>
+                            <option value="starship captain quarters">Captain Quarters</option>
+                            <option value="cryo revival bay">Cryo Bay</option>
+                            <option value="neon-lit cyberpunk apartment">Cyberpunk Apartment</option>
+                            <option value="decontamination chamber">Decon Chamber</option>
                         </optgroup>
                         <option value="_custom">Custom...</option>
                     </select>
