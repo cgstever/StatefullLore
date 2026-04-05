@@ -1133,8 +1133,10 @@ function saveSettings() {
     if (settings.active_lore) {
         try {
             await activateStoredLore(settings.active_lore);
-            // Silently check for a newer version; shows status only if update found or fails
-            checkForLoreUpdate(true).catch(() => {});
+            // Silently check for a newer xchange version — only when xchange is active
+            if (settings.active_lore === XCHANGE_LORE_KEY) {
+                checkForLoreUpdate(true).catch(() => {});
+            }
         } catch (ex) {
             console.warn('[OW] Could not activate lore:', ex);
         }
