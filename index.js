@@ -824,6 +824,10 @@ function getSettingsHtml() {
                             <option value="alchemist workshop">Alchemist Workshop</option>
                             <option value="temple inner sanctum">Temple Sanctum</option>
                         </optgroup>
+                        <optgroup label="Dungeon">
+                            <option value="luxury private dungeon">Luxury Private Dungeon</option>
+                            <option value="underground concrete dungeon">Underground Concrete Dungeon</option>
+                        </optgroup>
                         <optgroup label="Sci-Fi">
                             <option value="orbital space station quarters">Station Quarters</option>
                             <option value="starship captain quarters">Captain Quarters</option>
