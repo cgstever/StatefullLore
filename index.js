@@ -430,27 +430,31 @@ function buildScenePage(pending, messages) {
         || pending.recentMessageCount === 1;
 
     if (pending.header && !isPriorityTurn) {
-        // Normal turn — header goes in Layer 2 as scene context
+        // Normal turn — header already contains <engine-data> wrapper from the
+        // engine, so no extra wrapper needed. Story summary is appended into the
+        // same system message so the model sees one unified data block.
+        const summaryText = pending.condensedSummary || pending.storySummary || '';
+        let headerContent = pending.header;
+        if (summaryText) {
+            // Insert story summary inside the engine-data block (before </engine-data>)
+            const closeTag = '</engine-data>';
+            const closeIdx = headerContent.lastIndexOf(closeTag);
+            if (closeIdx !== -1) {
+                headerContent = headerContent.substring(0, closeIdx)
+                    + '\n<story-so-far>\n' + summaryText + '\n</story-so-far>\n'
+                    + headerContent.substring(closeIdx);
+            } else {
+                // Fallback: append after header
+                headerContent += '\n<story-so-far>\n' + summaryText + '\n</story-so-far>';
+            }
+        }
         scenePage.push({
             role: 'system',
-            content: '<scene-context>\n' + pending.header + '\n</scene-context>',
+            content: headerContent,
         });
     }
     // On priority turns the header is held back and injected into Layer 5,
     // so the model treats it as an active instruction rather than background.
-
-    // --- Layer 3: Story summary ----------------------------------------------
-    // Prefer condensedSummary (message-only deduped beats) over storySummary
-    // (state-based beat tracker). Suppressed on TX turns.
-    const summaryText = pending.condensedSummary || pending.storySummary || '';
-    if (summaryText && !isPriorityTurn) {
-        scenePage.push({
-            role: 'system',
-            content: summaryText.startsWith('<story-so-far>')
-                ? summaryText
-                : '<story-so-far>\n' + summaryText + '\n</story-so-far>',
-        });
-    }
 
     // --- Layer 4: Recent messages -------------------------------------------
     // Engine provides scrubbedRecentMessages (body-catalog terms removed from
@@ -1567,9 +1571,10 @@ function saveSettings() {
                                 payload.messages = pending.scrubbed_messages;
                             }
                             if (pending.header && !isPriorityTurn) {
+                                // Header already contains <engine-data> wrapper
                                 payload.messages.unshift({
                                     role: 'system',
-                                    content: '<scene-context>\n' + pending.header + '\n</scene-context>',
+                                    content: pending.header,
                                 });
                             }
 
@@ -1711,9 +1716,10 @@ function saveSettings() {
                                         ? [...pendingTX.scrubbed_messages]
                                         : [...payload.messages];
                                     if (pendingTX.header && !isPriorityTX) {
+                                        // Header already contains <engine-data> wrapper
                                         assembledMessages.unshift({
                                             role: 'system',
-                                            content: '<scene-context>\n' + pendingTX.header + '\n</scene-context>',
+                                            content: pendingTX.header,
                                         });
                                     }
                                     if (pendingTX.brief && !isPriorityTX) {
