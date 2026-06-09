@@ -113,7 +113,7 @@ function _flushDebugBuffer(state) {
         }
         state._debug_dump.turn_log = _debugLogBuffer.slice();
         state._debug_dump.flushed_at = new Date().toISOString();
-        state._debug_dump.extension_version = '2.0.15';
+        state._debug_dump.extension_version = '2.0.16';
         if (_lastAssembled) {
             state._debug_dump.assembled = _lastAssembled;
         }
@@ -1605,7 +1605,17 @@ async function refreshDebugPanel() {
     _renderDebugContent(panel, state, {});
 }
 
+let _slLastChosenName = null;   // sticky post-rename name for the debug panel (per chat)
 async function _renderDebugContent(panel, state, events) {
+    // Sticky chosen-name: the panel can transiently render a state that predates a rename (a
+    // pre-rename message, or an in-flight turn), which flashes the OLD card name for a frame.
+    // Once we've seen a _chosen_name for this chat, keep applying it so the panel name is stable.
+    // Reset on CHAT_CHANGED so it never bleeds into a different chat.
+    if (state && state._chosen_name) {
+        _slLastChosenName = state._chosen_name;
+    } else if (_slLastChosenName && state && state._card_name && !state._chosen_name) {
+        state = Object.assign({}, state, { _chosen_name: _slLastChosenName });
+    }
     let info = '';
     if (activeLore && typeof activeLore.getDebugInfo === 'function') {
         let ps = {};
@@ -1803,6 +1813,7 @@ function saveSettings() {
             eventSource.on(event_types.CHAT_CHANGED, async () => {
                 try {
                     lastTurnResult = null;
+                    _slLastChosenName = null;   // clear sticky rename-name when switching chats
                     const newState = readMsgState();
                     if (activeLore && typeof activeLore.updateHud === 'function') {
                         activeLore.updateHud(newState || null, activeLore._config);
