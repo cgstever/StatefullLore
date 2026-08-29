@@ -636,6 +636,47 @@ function messagesToChatML(messages, isPriorityTurn) {
     return prompt;
 }
 
+/**
+ * Post-TX example dialogue (Cody 2026-08-29).
+ *
+ * A card's `mes_example` is written for its ORIGINAL body and is correct pre-TX, so it
+ * must not be edited. Cards that need it instead carry a SECOND table at
+ * `data.extensions.xcw.mes_example_post_tx`, written for the transformed body. While a
+ * transformation is active we swap one for the other.
+ *
+ * Returns {orig, post} so the caller can do a LITERAL string swap. That matters: ST puts
+ * examples either inside the system prompt or in separate messages depending on settings,
+ * and swapping the card's own exact text finds them in both cases without parsing <START>
+ * regions. Cards with no post-TX table return null and behave exactly as before.
+ */
+function postTxExamplePair(ctx) {
+    try {
+        const c = ctx?.characters?.[ctx?.characterId];
+        if (!c) return null;
+        const d = c.data || c;
+        const post = d?.extensions?.xcw?.mes_example_post_tx;
+        if (typeof post !== 'string' || !post.trim()) return null;
+        const orig = String(d?.mes_example || c?.mes_example || '').trim();
+        if (!orig) return null;
+        return { orig, post: post.trim() };
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Swap the pre-TX example block for the post-TX one, in-place, wherever it appears. */
+function applyPostTxExamples(messages, pair) {
+    if (!pair || !Array.isArray(messages)) return 0;
+    let hits = 0;
+    for (const m of messages) {
+        if (!m || typeof m.content !== 'string' || !m.content.includes(pair.orig)) continue;
+        m.content = m.content.split(pair.orig).join(pair.post);
+        hits++;
+    }
+    if (hits) console.log('[OW] post-TX examples swapped in ' + hits + ' message(s)');
+    return hits;
+}
+
 function buildScenePage(pending, messages) {
     const scenePage = [];
 
@@ -1984,6 +2025,11 @@ function saveSettings() {
                             personaBlock:       resolveMacros(turnResult.personaBlock || null, ctx),
                             anatomyOverride:    state._card_anatomy_override || null,
                             stripWords:         state._card_strip_words || null,
+                            // Post-TX example dialogue — gated on the same signal as the
+                            // anatomy override, so examples and body text can never
+                            // disagree about which state the character is in.
+                            postTxExamples:     state._card_anatomy_override
+                                                  ? postTxExamplePair(ctx) : null,
                         };
 
                         // Also resolve macros in inject entries
@@ -1992,6 +2038,14 @@ function saveSettings() {
                         }
 
                         const isPriorityTurn = pending.priorityInjection || pending.recentMessageCount === 1;
+
+                        // Swap pre-TX example dialogue for the post-TX table BEFORE the
+                        // branch, so whichever path runs inherits the corrected text —
+                        // scene-page mode copies the system message through, and fallback
+                        // mode passes native history straight out. Runs on the source
+                        // array, so it catches examples whether ST folded them into the
+                        // system prompt or sent them as their own messages.
+                        applyPostTxExamples(payload.messages, pending.postTxExamples);
 
                         if (settings.scenePageMode) {
                             // ── Scene Page mode: full rebuild ────────────────
